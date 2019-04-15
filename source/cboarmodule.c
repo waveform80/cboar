@@ -3,14 +3,16 @@
 #include <stdbool.h>
 #include <limits.h>
 #include <endian.h>
+#include <stdint.h>
 #include "structmember.h"
 
 
 typedef struct {
     PyObject_HEAD
-    PyObject *encoders;
     PyObject *fp;       // current output file-like object
+    PyObject *encoders;
     PyObject *default_handler;
+    PyObject *shared;
     int timestamp_format;
     bool value_sharing;
 } EncoderObject;
@@ -23,6 +25,7 @@ Encoder_dealloc(EncoderObject *self)
     Py_XDECREF(self->encoders);
     Py_XDECREF(self->fp);
     Py_XDECREF(self->default_handler);
+    Py_XDECREF(self->shared);
     Py_TYPE(self)->tp_free((PyObject *) self);
 }
 
@@ -75,29 +78,34 @@ Encoder_init(EncoderObject *self, PyObject *args, PyObject *kwargs)
     if (!collections)
         return -1;
     ordered_dict = PyObject_GetAttrString(collections, "OrderedDict");
-    if (!ordered_dict) {
-        Py_DECREF(collections);
+    Py_DECREF(collections);
+    if (!ordered_dict)
         return -1;
-    }
 
     tmp = self->encoders;
     self->encoders = PyObject_CallObject(ordered_dict, NULL);
-    if (!self->encoders) {
-        Py_DECREF(collections);
+    Py_DECREF(ordered_dict);
+    if (!self->encoders)
         return -1;
-    }
-    Py_DECREF(collections);
     Py_XDECREF(tmp);
+
     tmp = self->fp;
     Py_INCREF(fp);
     self->fp = fp;
     Py_XDECREF(tmp);
+
     if (default_handler) {
         tmp = self->default_handler;
         Py_INCREF(default_handler);
         self->default_handler = default_handler;
         Py_XDECREF(tmp);
     }
+
+    tmp = self->shared;
+    self->shared = PyDict_New();
+    if (!self->shared)
+        return -1;
+    Py_XDECREF(tmp);
 
     return 0;
 }
@@ -353,6 +361,46 @@ Encoder__encode_semantic(EncoderObject *self, const uint32_t tag,
     obj = Encoder_encode(self, value);
     Py_XDECREF(obj);
     return obj == NULL ? -1 : 0;
+}
+
+
+static PyObject *
+Encoder__encode_shared(EncoderObject *self, PyObject *encoder, PyObject *value)
+{
+    PyObject *id, *container, *index, *tmp, *ret = NULL;
+
+    id = PyLong_FromVoidPtr(value);
+    if (id) {
+        tmp = PyDict_GetItem(self->shared, id);
+        if (self->value_sharing) {
+            if (tmp) {
+                if (Encoder__encode_length(self, 0xD8, 0x1D) == 0)
+                    ret = Encoder_encode_int(self, PyTuple_GET_ITEM(tmp, 1));
+            }
+            else {
+                PyObject *len;
+
+                len = PyLong_FromSsize_t(PyDict_Size(self->shared));
+                if (len) {
+                    PyObject *item;
+
+                    item = PyTuple_Pack(2, value, len);
+                    if (item) {
+                        if (PyDict_SetItem(self->shared, id, item) == 0) {
+                            Encoder__encode_length(self, 0xD8, 0x1C);
+                            // TODO call encoder
+                        }
+                        Py_DECREF(item);
+                    }
+                    Py_DECREF(len);
+                }
+            }
+        }
+        else {
+        }
+        Py_DECREF(id);
+    }
+    return ret;
 }
 
 
