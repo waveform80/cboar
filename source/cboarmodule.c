@@ -1,3 +1,4 @@
+#define PY_SSIZE_T_CLEAN
 #include <Python.h>
 #include <stdbool.h>
 #include <limits.h>
@@ -19,6 +20,7 @@ typedef struct {
 static void
 Encoder_dealloc(EncoderObject *self)
 {
+    Py_XDECREF(self->encoders);
     Py_XDECREF(self->fp);
     Py_XDECREF(self->default_handler);
     Py_TYPE(self)->tp_free((PyObject *) self);
@@ -52,7 +54,8 @@ Encoder_init(EncoderObject *self, PyObject *args, PyObject *kwargs)
     static char *keywords[] = {
         "fp", "default_handler", "timestamp_format", "value_sharing", NULL
     };
-    PyObject *fp = NULL, *default_handler = NULL, *tmp;
+    PyObject *fp = NULL, *default_handler = NULL, *tmp, *collections,
+             *ordered_dict;
 
     if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|Oip", keywords,
                 &fp, &default_handler, &self->timestamp_format,
@@ -68,6 +71,23 @@ Encoder_init(EncoderObject *self, PyObject *args, PyObject *kwargs)
         return -1;
     }
 
+    collections = PyImport_ImportModule("collections");
+    if (!collections)
+        return -1;
+    ordered_dict = PyObject_GetAttrString(collections, "OrderedDict");
+    if (!ordered_dict) {
+        Py_DECREF(collections);
+        return -1;
+    }
+
+    tmp = self->encoders;
+    self->encoders = PyObject_CallObject(ordered_dict, NULL);
+    if (!self->encoders) {
+        Py_DECREF(collections);
+        return -1;
+    }
+    Py_DECREF(collections);
+    Py_XDECREF(tmp);
     tmp = self->fp;
     Py_INCREF(fp);
     self->fp = fp;
@@ -78,7 +98,116 @@ Encoder_init(EncoderObject *self, PyObject *args, PyObject *kwargs)
         self->default_handler = default_handler;
         Py_XDECREF(tmp);
     }
+
     return 0;
+}
+
+
+static PyObject *
+Encoder__load_type(PyObject *type_tuple)
+{
+    PyObject *mod_name, *module, *type_name, *type, *import_list;
+
+    if (PyTuple_GET_SIZE(type_tuple) != 2) {
+        PyErr_SetString(PyExc_ValueError, "deferred load encoder types must be a 2-tuple");
+        return NULL;
+    }
+    mod_name = PyTuple_GET_ITEM(type_tuple, 0);
+    if (!PyUnicode_Check(mod_name)) {
+        PyErr_SetString(PyExc_ValueError, "deferred load element 0 is not a string");
+        return NULL;
+    }
+    type_name = PyTuple_GET_ITEM(type_tuple, 1);
+    if (!PyUnicode_Check(type_name)) {
+        PyErr_SetString(PyExc_ValueError, "deferred load element 1 is not a string");
+        return NULL;
+    }
+
+    import_list = PyList_New(1);
+    if (!import_list)
+        return NULL;
+    Py_INCREF(type_name);
+    PyList_SET_ITEM(import_list, 0, type_name);
+    module = PyImport_ImportModuleLevelObject(mod_name, NULL, NULL, import_list, 0);
+    Py_DECREF(import_list);
+    if (!module)
+        return NULL;
+    type = PyObject_GetAttr(module, type_name);
+    Py_DECREF(module);
+    return type;
+}
+
+
+static PyObject *
+Encoder__replace_type(EncoderObject *self, PyObject *item)
+{
+    PyObject *ret = NULL, *enc_type, *encoder;
+
+    enc_type = PyTuple_GET_ITEM(item, 0);
+    encoder = PyTuple_GET_ITEM(item, 1);
+    // this function is unusual in that enc_type is a borrowed reference on
+    // entry, and the return value (a transformed enc_type) is also a borrowed
+    // reference; hence we have to INCREF enc_type to ensure it doesn't
+    // disappear when removing it from the encoders dict (which might be the
+    // only reference to it)
+    Py_INCREF(enc_type);
+    if (PyObject_DelItem(self->encoders, enc_type) == 0) {
+        ret = Encoder__load_type(enc_type);
+        if (ret && PyObject_SetItem(self->encoders, ret, encoder) == 0)
+            // this DECREF might look unusual but at this point the encoders
+            // dict has a ref to the new enc_type, so we want "our" ref to
+            // enc_type to be borrowed just as the original was on entry
+            Py_DECREF(ret);
+        Py_DECREF(enc_type);
+    }
+    return ret;
+}
+
+
+/* Encoder._find_encoder(type) */
+static PyObject *
+Encoder__find_encoder(EncoderObject *self, PyObject *type)
+{
+    PyObject *ret, *enc_type, *items, *iter, *item;
+
+    ret = PyObject_GetItem(self->encoders, type);
+    if (!ret && PyErr_ExceptionMatches(PyExc_KeyError)) {
+        PyErr_Clear();
+        items = PyMapping_Items(self->encoders);
+        if (items) {
+            iter = PyObject_GetIter(items);
+            if (iter) {
+                while (!ret && (item = PyIter_Next(iter))) {
+                    enc_type = PyTuple_GET_ITEM(item, 0);
+
+                    if (PyTuple_Check(enc_type))
+                        enc_type = Encoder__replace_type(self, item);
+                    if (enc_type)
+                        switch (PyObject_IsSubclass(type, enc_type)) {
+                            case 1:
+                                ret = PyTuple_GET_ITEM(item, 1);
+                                if (PyObject_SetItem(self->encoders, type, ret) == 0)
+                                    break;
+                                // fall-thru to error case
+                            case -1:
+                                enc_type = NULL;
+                                ret = NULL;
+                                break;
+                        }
+                    Py_DECREF(item);
+                    if (!enc_type)
+                        break;
+                }
+                Py_DECREF(iter);
+            }
+            Py_DECREF(items);
+        }
+        if (ret)
+            Py_XINCREF(ret);
+        else if (!PyErr_Occurred())
+            PyErr_SetObject(PyExc_KeyError, type);
+    }
+    return ret;
 }
 
 
@@ -151,13 +280,23 @@ Encoder_setdefault(EncoderObject *self, PyObject *value, void *closure)
 static PyObject *
 Encoder_encode(EncoderObject *self, PyObject *value)
 {
-    // TODO
-    Py_RETURN_NONE;
+    PyObject *encoder, *ret = NULL;
+
+    encoder = Encoder__find_encoder(self, (PyObject *)Py_TYPE(value));
+    if (encoder) {
+        PyObject *args = PyTuple_Pack(2, self, value);
+        if (args) {
+            ret = PyObject_Call(encoder, args, NULL);
+            Py_DECREF(args);
+        }
+        Py_DECREF(encoder);
+    }
+    return ret;
 }
 
 
 static int
-Encoder__write(EncoderObject *self, char *buf, uint32_t length)
+Encoder__write(EncoderObject *self, const char *buf, const uint32_t length)
 {
     PyObject *obj;
 
@@ -171,7 +310,8 @@ Encoder__write(EncoderObject *self, char *buf, uint32_t length)
 
 
 static int
-Encoder__encode_length(EncoderObject *self, uint8_t major_tag, uint64_t length)
+Encoder__encode_length(EncoderObject *self, const uint8_t major_tag,
+        const uint64_t length)
 {
     char buf[sizeof(uint64_t) + 1];
 
@@ -203,7 +343,8 @@ Encoder__encode_length(EncoderObject *self, uint8_t major_tag, uint64_t length)
 
 
 static int
-Encoder__encode_semantic(EncoderObject *self, uint32_t tag, PyObject *value)
+Encoder__encode_semantic(EncoderObject *self, const uint32_t tag,
+        PyObject *value)
 {
     PyObject *obj;
 
@@ -272,12 +413,18 @@ Encoder_encode_int(EncoderObject *self, PyObject *value)
     long long int_value;
     int overflow;
 
-    if (!PyLong_Check(value))
-        return NULL;
     int_value = PyLong_AsLongLongAndOverflow(value, &overflow);
     if (overflow == 0) {
-        if (Encoder__encode_length(self, 0, int_value) == -1)
-            return NULL;
+        if (value >= 0) {
+            if (Encoder__encode_length(self, 0, int_value) == -1)
+                return NULL;
+        }
+        else {
+            // avoid overflow in the case where int_value == -2^63
+            int_value = -(int_value + 1);
+            if (Encoder__encode_length(self, 0x20, int_value) == -1)
+                return NULL;
+        }
     }
     else {
         uint32_t major_tag;
@@ -339,12 +486,46 @@ Encoder_encode_bytes(EncoderObject *self, PyObject *value)
 }
 
 
-// TODO encode_bytearray
+/* Encoder.encode_bytearray(self, value) */
+static PyObject *
+Encoder_encode_bytearray(EncoderObject *self, PyObject *value)
+{
+    Py_ssize_t length;
 
-// TODO encode_strings
+    if (!PyByteArray_Check(value)) {
+        PyErr_SetString(PyExc_ValueError, "expected bytearray");
+        return NULL;
+    }
+    length = PyByteArray_GET_SIZE(value);
+    if (Encoder__encode_length(self, 0x40, length) == -1)
+        return NULL;
+    if (Encoder__write(self, PyByteArray_AS_STRING(value), length) == -1)
+        return NULL;
+    Py_RETURN_NONE;
+}
+
+
+/* Encoder.encode_string(self, value) */
+static PyObject *
+Encoder_encode_string(EncoderObject *self, PyObject *value)
+{
+    char *buf;
+    Py_ssize_t length;
+
+    buf = PyUnicode_AsUTF8AndSize(value, &length);
+    if (!buf)
+        return NULL;
+    if (Encoder__encode_length(self, 0x60, length) == -1)
+        return NULL;
+    if (Encoder__write(self, buf, length) == -1)
+        return NULL;
+    Py_RETURN_NONE;
+}
 
 
 static PyMemberDef Encoder_members[] = {
+    {"encoders", T_OBJECT_EX, offsetof(EncoderObject, encoders), READONLY,
+        "the ordered dict mapping types to encoder functions"},
     {"timestamp_format", T_INT, offsetof(EncoderObject, timestamp_format), 0,
         "the sub-type to use when encoding datetime objects"},
     {"value_sharing", T_BOOL, offsetof(EncoderObject, value_sharing), 0,
@@ -361,12 +542,18 @@ static PyGetSetDef Encoder_getsetters[] = {
 };
 
 static PyMethodDef Encoder_methods[] = {
+    {"_find_encoder", (PyCFunction) Encoder__find_encoder, METH_O,
+        "find an encoding function for the specified type"},
     {"encode", (PyCFunction) Encoder_encode, METH_O,
         "encode the specified *value* to the output"},
     {"encode_int", (PyCFunction) Encoder_encode_int, METH_O,
         "encode the specified integer *value* to the output"},
     {"encode_bytes", (PyCFunction) Encoder_encode_bytes, METH_O,
         "encode the specified bytes *value* to the output"},
+    {"encode_bytearray", (PyCFunction) Encoder_encode_bytearray, METH_O,
+        "encode the specified bytearray *value* to the output"},
+    {"encode_string", (PyCFunction) Encoder_encode_string, METH_O,
+        "encode the specified string *value* to the output"},
     {"encode_length", (PyCFunction) Encoder_encode_length, METH_VARARGS,
         "encode the specified *major_tag* with the specified *length* to the output"},
     {"encode_semantic", (PyCFunction) Encoder_encode_semantic, METH_VARARGS,
@@ -394,24 +581,27 @@ static struct PyModuleDef _cboarmodule = {
     PyModuleDef_HEAD_INIT,
     .m_name = "_cboar",
     .m_doc = NULL,
-    .m_size = -1,                   // size of per-interpreter state
+    .m_size = -1, // XXX Change to 0?
 };
 
 
 PyMODINIT_FUNC
 PyInit__cboar(void)
 {
-    PyObject *m;
+    PyObject *module;
 
     if (PyType_Ready(&EncoderType) < 0)
         return NULL;
 
-    m = PyModule_Create(&_cboarmodule);
-    if (m == NULL)
+    module = PyModule_Create(&_cboarmodule);
+    if (!module)
         return NULL;
 
     Py_INCREF(&EncoderType);
-    PyModule_AddObject(m, "Encoder", (PyObject *) &EncoderType);
+    if (PyModule_AddObject(module, "Encoder", (PyObject *) &EncoderType) == -1) {
+        Py_DECREF(module);
+        return NULL;
+    }
 
-    return m;
+    return module;
 }
