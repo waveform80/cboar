@@ -695,7 +695,7 @@ Encoder_encode_float(EncoderObject *self, PyObject *value)
 static PyObject *
 Encoder_encode_decimal(EncoderObject *self, PyObject *value)
 {
-    PyObject *tmp, *ret = NULL;
+    PyObject *tmp, *zero, *ret = NULL;
 
     tmp = PyObject_CallMethod(value, "is_nan", NULL);
     if (tmp) {
@@ -707,9 +707,22 @@ Encoder_encode_decimal(EncoderObject *self, PyObject *value)
     if (!ret) {
         tmp = PyObject_CallMethod(value, "is_infinite", NULL);
         if (tmp) {
-            if (PyObject_IsTrue(tmp))
-                if (Encoder__write(self, "\xF9\x7C\x00", 3) == 0)
-                    ret = Py_None;
+            if (PyObject_IsTrue(tmp)) {
+                zero = PyLong_FromLong(0);
+                if (zero) {
+                    switch (PyObject_RichCompareBool(value, zero, Py_GT)) {
+                        case 1:
+                            if (Encoder__write(self, "\xF9\x7C\x00", 3) == 0)
+                                ret = Py_None;
+                            break;
+                        case 0:
+                            if (Encoder__write(self, "\xF9\xFC\x00", 3) == 0)
+                                ret = Py_None;
+                            break;
+                    }
+                    Py_DECREF(zero);
+                }
+            }
             Py_DECREF(tmp);
         }
     }
