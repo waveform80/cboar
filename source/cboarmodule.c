@@ -619,6 +619,84 @@ Encoder_encode_float(EncoderObject *self, PyObject *value)
 }
 
 
+/* Encoder.encode_decimal(self, value) */
+static PyObject *
+Encoder_encode_decimal(EncoderObject *self, PyObject *value)
+{
+    PyObject *tmp, *ret = NULL;
+
+    tmp = PyObject_CallMethod(value, "is_nan", NULL);
+    if (tmp) {
+        if (PyObject_IsTrue(tmp))
+            if (Encoder__write(self, "\xF9\x7E\x00", 3) == 0)
+                ret = Py_None;
+        Py_DECREF(tmp);
+    }
+    if (!ret) {
+        tmp = PyObject_CallMethod(value, "is_infinite", NULL);
+        if (tmp) {
+            if (PyObject_IsTrue(tmp))
+                if (Encoder__write(self, "\xF9\x7C\x00", 3) == 0)
+                    ret = Py_None;
+            Py_DECREF(tmp);
+        }
+    }
+    if (!ret) {
+        PyObject *tuple = PyObject_CallMethod(value, "as_tuple", NULL);
+        if (tuple) {
+            bool sign;
+            PyObject *digits, *exponent;
+            if (PyArg_ParseTuple(tuple, "pO!O!", &sign,
+                        &PyTuple_Type, &digits, &PyLong_Type, &exponent)) {
+                PyObject *mantissa = PyLong_FromLong(0);
+                if (mantissa) {
+                    PyObject *ten = PyLong_FromLong(10);
+                    if (ten) {
+                        Py_ssize_t length = PyTuple_GET_SIZE(digits);
+                        for (Py_ssize_t i = 0; i < length; ++i) {
+                            tmp = PyNumber_Multiply(mantissa, ten);
+                            if (!tmp)
+                                break;
+                            Py_DECREF(mantissa);
+                            mantissa = tmp;
+                            tmp = PyNumber_Add(mantissa, PyTuple_GET_ITEM(digits, i));
+                            if (!tmp)
+                                break;
+                            Py_DECREF(mantissa);
+                            mantissa = tmp;
+                        }
+                        Py_DECREF(ten);
+                        if (tmp && sign) {
+                            tmp = PyNumber_Negative(mantissa);
+                            if (tmp) {
+                                Py_DECREF(mantissa);
+                                mantissa = tmp;
+                            }
+                        }
+                        if (tmp) {
+                            PyObject *args;
+                            bool sharing = self->value_sharing;
+                            self->value_sharing = false;
+                            args = PyTuple_Pack(2, exponent, mantissa);
+                            if (args) {
+                                if (Encoder__encode_semantic(self, 4, args) == 0)
+                                    ret = Py_None;
+                                Py_DECREF(args);
+                            }
+                            self->value_sharing = sharing;
+                        }
+                    }
+                    Py_DECREF(mantissa);
+                }
+            }
+            Py_DECREF(tuple);
+        }
+    }
+    Py_XINCREF(ret);
+    return ret;
+}
+
+
 /* Encoder.encode_boolean(self, value) */
 static PyObject *
 Encoder_encode_boolean(EncoderObject *self, PyObject *value)
@@ -680,7 +758,6 @@ Encoder_encode_simple(EncoderObject *self, PyObject *args)
 static PyObject *
 Encoder_encode_rational(EncoderObject *self, PyObject *value)
 {
-    bool sharing;
     PyObject *tuple, *num, *den, *ret = NULL;
 
     num = PyObject_GetAttrString(value, "numerator");
@@ -689,7 +766,7 @@ Encoder_encode_rational(EncoderObject *self, PyObject *value)
         if (den) {
             tuple = PyTuple_Pack(2, num, den);
             if (tuple) {
-                sharing = self->value_sharing;
+                bool sharing = self->value_sharing;
                 self->value_sharing = false;
                 if (Encoder__encode_semantic(self, 30, tuple) == 0)
                     ret = Py_None;
@@ -848,6 +925,49 @@ Encoder_encode_map(EncoderObject *self, PyObject *value)
 }
 
 
+static PyObject *
+Encoder__encode_set(EncoderObject *self, PyObject *value)
+{
+    Py_ssize_t length;
+    PyObject *ret = NULL;
+
+    length = PySet_Size(value);
+    if (length != -1) {
+        PyObject *iter = PyObject_GetIter(value);
+        if (iter) {
+            if (Encoder__encode_length(self, 0xC0, 258) == 0) {
+                if (Encoder__encode_length(self, 0x80, length) == 0) {
+                    PyObject *item;
+
+                    while ((item = PyIter_Next(iter))) {
+                        if (!Encoder_encode(self, item)) {
+                            Py_DECREF(item);
+                            goto error;
+                        }
+                        Py_DECREF(item);
+                    }
+                    if (!PyErr_Occurred()) {
+                        ret = Py_None;
+                        Py_INCREF(ret);
+                    }
+                }
+            }
+error:
+            Py_DECREF(iter);
+        }
+    }
+    return ret;
+}
+
+
+/* Encoder.encode_set(self, value) */
+static PyObject *
+Encoder_encode_set(EncoderObject *self, PyObject *value)
+{
+    return Encoder__encode_shared(self, &Encoder__encode_set, value);
+}
+
+
 /* Encoder.encode(self, value) */
 static PyObject *
 Encoder_encode(EncoderObject *self, PyObject *value)
@@ -914,12 +1034,16 @@ static PyMethodDef Encoder_methods[] = {
         "encode the specified CBORSimpleValue to the output"},
     {"encode_rational", (PyCFunction) Encoder_encode_rational, METH_O,
         "encode the specified fraction to the output"},
+    {"encode_decimal", (PyCFunction) Encoder_encode_decimal, METH_O,
+        "encode the specified Decimal to the output"},
     {"encode_regex", (PyCFunction) Encoder_encode_regex, METH_O,
         "encode the specified regular expression object to the output"},
     {"encode_mime", (PyCFunction) Encoder_encode_mime, METH_O,
         "encode the specified MIME message object to the output"},
     {"encode_uuid", (PyCFunction) Encoder_encode_uuid, METH_O,
         "encode the specified UUID to the output"},
+    {"encode_set", (PyCFunction) Encoder_encode_set, METH_O,
+        "encode the specified set to the output"},
     {NULL}
 };
 

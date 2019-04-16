@@ -24,6 +24,7 @@ default_encoders = [
     (str,                             BaseEncoder.encode_string),
     (int,                             BaseEncoder.encode_int),
     (float,                           BaseEncoder.encode_float),
+    (('decimal', 'Decimal'),          BaseEncoder.encode_decimal),
     (bool,                            BaseEncoder.encode_boolean),
     (type(None),                      BaseEncoder.encode_none),
     (tuple,                           BaseEncoder.encode_array),
