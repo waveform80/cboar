@@ -290,7 +290,8 @@ Encoder__load_type(PyObject *type_tuple)
         return NULL;
     Py_INCREF(type_name);
     PyList_SET_ITEM(import_list, 0, type_name);
-    module = PyImport_ImportModuleLevelObject(mod_name, NULL, NULL, import_list, 0);
+    module = PyImport_ImportModuleLevelObject(
+            mod_name, NULL, NULL, import_list, 0);
     Py_DECREF(import_list);
     if (!module)
         return NULL;
@@ -303,7 +304,7 @@ Encoder__load_type(PyObject *type_tuple)
 static PyObject *
 Encoder__replace_type(EncoderObject *self, PyObject *item)
 {
-    PyObject *ret = NULL, *enc_type, *encoder;
+    PyObject *enc_type, *encoder, *ret = NULL;
 
     enc_type = PyTuple_GET_ITEM(item, 0);
     encoder = PyTuple_GET_ITEM(item, 1);
@@ -330,7 +331,7 @@ Encoder__replace_type(EncoderObject *self, PyObject *item)
 static PyObject *
 Encoder__find_encoder(EncoderObject *self, PyObject *type)
 {
-    PyObject *ret, *enc_type, *items, *iter, *item;
+    PyObject *enc_type, *items, *iter, *item, *ret;
 
     ret = PyObject_GetItem(self->encoders, type);
     if (!ret && PyErr_ExceptionMatches(PyExc_KeyError)) {
@@ -365,7 +366,7 @@ Encoder__find_encoder(EncoderObject *self, PyObject *type)
             Py_DECREF(items);
         }
         if (ret)
-            Py_XINCREF(ret);
+            Py_INCREF(ret);
         else if (!PyErr_Occurred())
             PyErr_SetObject(PyExc_KeyError, type);
     }
