@@ -33,6 +33,8 @@ default_encoders = [
     (defaultdict,                     BaseEncoder.encode_map),
     (OrderedDict,                     BaseEncoder.encode_map),
     (type(undefined),                 BaseEncoder.encode_undefined),
+    (datetime,                        BaseEncoder.encode_datetime),
+    (date,                            BaseEncoder.encode_date),
     (type(re.compile('')),            BaseEncoder.encode_regex),
     (('fractions', 'Fraction'),       BaseEncoder.encode_rational),
     (('email.message', 'Message'),    BaseEncoder.encode_mime),
@@ -49,9 +51,10 @@ canonical_encoders = [
 
 
 class Encoder(BaseEncoder):
-    def __init__(self, fp, default_handler=None, timestamp_format=0,
-                 value_sharing=False, canonical=False):
-        super().__init__(fp, default_handler, timestamp_format, value_sharing)
+    def __init__(self, fp, datetime_as_timestamp=False, timezone=None,
+                 value_sharing=False, default=None, canonical=False):
+        super().__init__(fp, datetime_as_timestamp, timezone, value_sharing,
+                         default)
         self.encoders.update(default_encoders)
         if canonical:
             self.encoders.update(canonical_encoders)

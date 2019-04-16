@@ -6,6 +6,36 @@
 #include <stdint.h>
 #include <math.h>
 #include "structmember.h"
+#include "datetime.h"
+
+
+// Some notes on conventions in this code. All methods confirm to a couple of
+// return styles:
+//
+// * PyObject* (mostly for methods accessible from Python) in which case a
+//   return value of NULL indicates an error, or
+//
+// * int (mostly for internal methods) in which case 0 indicates success and -1
+//   an error. This is in keeping with most of Python's C-API.
+//
+// In an attempt to avoid leaks a particular coding style is used where
+// possible:
+//
+// 1. As soon as a new reference to an object is generated / returned, a
+//    block like this follows: if (ref) { ... Py_DECREF(ref); }
+//
+// 2. The result is calculated in the "ret" local and returned only at the
+//    end of the function, once we're sure all references have been accounted
+//    for.
+//
+// 3. No "return" is permitted before the end of the function, and "break" or
+//    "goto" should be used over a minimal distance to ensure Py_DECREFs aren't
+//    jumped over.
+//
+// While this style helps ensure fewer leaks, it's worth noting it results in
+// rather "nested" code which looks a bit unusual / ugly for C. Furthermore,
+// it's not fool-proof; there's probably some leaks left. Please file bugs for
+// any leaks you detect!
 
 
 typedef struct {
@@ -14,7 +44,8 @@ typedef struct {
     PyObject *encoders;
     PyObject *default_handler;
     PyObject *shared;
-    int timestamp_format;
+    PyObject *timezone;
+    bool timestamp_format;
     bool value_sharing;
 } EncoderObject;
 
@@ -27,6 +58,7 @@ static PyObject * Encoder_encode_int(EncoderObject *, PyObject *);
 
 static int Encoder_setfp(EncoderObject *, PyObject *, void *);
 static int Encoder_setdefault(EncoderObject *, PyObject *, void *);
+static int Encoder_settimezone(EncoderObject *, PyObject *, void *);
 
 
 /* Encoder.__del__(self) */
@@ -37,6 +69,7 @@ Encoder_dealloc(EncoderObject *self)
     Py_XDECREF(self->write);
     Py_XDECREF(self->default_handler);
     Py_XDECREF(self->shared);
+    Py_XDECREF(self->timezone);
     Py_TYPE(self)->tp_free((PyObject *) self);
 }
 
@@ -53,7 +86,9 @@ Encoder_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
         self->write = Py_None;
         Py_INCREF(Py_None);
         self->default_handler = Py_None;
-        self->timestamp_format = 0;
+        Py_INCREF(Py_None);
+        self->timezone = Py_None;
+        self->timestamp_format = false;
         self->value_sharing = false;
     }
     return (PyObject *) self;
@@ -66,19 +101,22 @@ static int
 Encoder_init(EncoderObject *self, PyObject *args, PyObject *kwargs)
 {
     static char *keywords[] = {
-        "fp", "default_handler", "timestamp_format", "value_sharing", NULL
+        "fp", "datetime_as_timestamp", "timezone", "value_sharing", "default",
+        NULL
     };
-    PyObject *fp = NULL, *default_handler = NULL, *tmp, *collections,
-             *ordered_dict;
+    PyObject *fp = NULL, *default_handler = NULL, *timezone = NULL, *tmp,
+             *collections, *ordered_dict;
 
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|Oip", keywords,
-                &fp, &default_handler, &self->timestamp_format,
-                &self->value_sharing))
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|pOpO", keywords,
+                &fp, &self->timestamp_format, &timezone, &self->value_sharing,
+                &default_handler))
         return -1;
 
     if (Encoder_setfp(self, fp, NULL) == -1)
         return -1;
     if (default_handler && Encoder_setdefault(self, default_handler, NULL) == -1)
+        return -1;
+    if (timezone && Encoder_settimezone(self, timezone, NULL) == -1)
         return -1;
 
     collections = PyImport_ImportModule("collections");
@@ -180,8 +218,41 @@ Encoder_setdefault(EncoderObject *self, PyObject *value, void *closure)
 }
 
 
+/* Encoder._get_timezone(self) */
+static PyObject *
+Encoder_gettimezone(EncoderObject *self, void *closure)
+{
+    Py_INCREF(self->timezone);
+    return self->timezone;
+}
+
+
+/* Encoder._set_timezone(self, value) */
 static int
-Encoder__write(EncoderObject *self, const char *buf, const uint32_t length)
+Encoder_settimezone(EncoderObject *self, PyObject *value, void *closure)
+{
+    PyObject *tmp;
+
+    if (!value) {
+        PyErr_SetString(PyExc_TypeError,
+                        "cannot delete timezone attribute");
+        return -1;
+    }
+    if (!PyTZInfo_Check(value) && value != Py_None) {
+        PyErr_SetString(PyExc_ValueError,
+                        "timezone must be tzinfo instance or None");
+        return -1;
+    }
+    tmp = self->timezone;
+    Py_INCREF(value);
+    self->timezone = value;
+    Py_DECREF(tmp);
+    return 0;
+}
+
+
+static int
+Encoder__write(EncoderObject *self, const char *buf, const int length)
 {
     PyObject *obj;
 
@@ -590,7 +661,7 @@ Encoder_encode_float(EncoderObject *self, PyObject *value)
         uint64_t i;
     } u;
 
-    u.f = PyFloat_AsDouble(value);
+    u.f = PyFloat_AS_DOUBLE(value);
     if (u.f == -1.0 && PyErr_Occurred())
         return NULL;
     switch (fpclassify(u.f)) {
@@ -697,6 +768,135 @@ Encoder_encode_decimal(EncoderObject *self, PyObject *value)
 }
 
 
+static PyObject *
+Encoder__encode_timestamp(EncoderObject *self, PyObject *timestamp)
+{
+    PyObject *ret = NULL;
+
+    if (Encoder__write(self, "\xC1", 1) == 0) {
+        double d = PyFloat_AS_DOUBLE(timestamp);
+        if (d == trunc(d)) {
+            PyObject *i = PyLong_FromDouble(d);
+            if (i) {
+                ret = Encoder_encode_int(self, i);
+                Py_DECREF(i);
+            }
+        } else {
+            ret = Encoder_encode_float(self, timestamp);
+        }
+    }
+    return ret;
+}
+
+
+static PyObject *
+Encoder__encode_datestr(EncoderObject *self, PyObject *datestr)
+{
+    char *buf;
+    Py_ssize_t length, match;
+    static PyObject *utc_suffix = NULL;
+
+    if (!utc_suffix)
+        utc_suffix = PyUnicode_InternFromString("+00:00");
+
+    if (utc_suffix) {
+        match = PyUnicode_Tailmatch(
+            datestr, utc_suffix, PyUnicode_GET_LENGTH(datestr) - 6,
+            PyUnicode_GET_LENGTH(datestr), 1);
+        if (match != -1) {
+            buf = PyUnicode_AsUTF8AndSize(datestr, &length);
+            if (buf) {
+                if (Encoder__write(self, "\xC0", 1) == 0) {
+                    if (match) {
+                        if (Encoder__encode_length(self, 0x60, length - 5) == 0)
+                            if (Encoder__write(self, buf, length - 6) == 0)
+                                if (Encoder__write(self, "Z", 1) == 0)
+                                    Py_RETURN_NONE;
+                    } else {
+                        if (Encoder__encode_length(self, 0x60, length) == 0)
+                            if (Encoder__write(self, buf, length) == 0)
+                                Py_RETURN_NONE;
+                    }
+                }
+            }
+        }
+    }
+    return NULL;
+}
+
+
+/* Encoder.encode_datetime(self, value) */
+static PyObject *
+Encoder_encode_datetime(EncoderObject *self, PyObject *value)
+{
+    PyObject *tmp, *ret = NULL;
+
+    if (PyDateTime_Check(value)) {
+        if (!((PyDateTime_DateTime*)value)->hastzinfo) {
+            if (self->timezone != Py_None) {
+                value = PyDateTimeAPI->DateTime_FromDateAndTime(
+                        PyDateTime_GET_YEAR(value),
+                        PyDateTime_GET_MONTH(value),
+                        PyDateTime_GET_DAY(value),
+                        PyDateTime_DATE_GET_HOUR(value),
+                        PyDateTime_DATE_GET_MINUTE(value),
+                        PyDateTime_DATE_GET_SECOND(value),
+                        PyDateTime_DATE_GET_MICROSECOND(value),
+                        self->timezone,
+                        PyDateTimeAPI->DateTimeType);
+            } else {
+                PyErr_SetString(PyExc_ValueError,
+                                "naive datetime encountered and no default "
+                                "timezone has been set");
+               value = NULL;
+            }
+        } else {
+            // convert value from borrowed to a new reference to simplify our
+            // cleanup later
+            Py_INCREF(value);
+        }
+
+        if (value) {
+            if (self->timestamp_format) {
+                tmp = PyObject_CallMethod(value, "timestamp", NULL);
+                if (tmp)
+                    ret = Encoder__encode_timestamp(self, tmp);
+            } else {
+                tmp = PyObject_CallMethod(value, "isoformat", NULL);
+                if (tmp)
+                    ret = Encoder__encode_datestr(self, tmp);
+            }
+            Py_XDECREF(tmp);
+            Py_DECREF(value);
+        }
+    }
+    return ret;
+}
+
+
+/* Encoder.encode_date(self, value) */
+static PyObject *
+Encoder_encode_date(EncoderObject *self, PyObject *value)
+{
+    PyObject *datetime, *ret = NULL;
+
+    if (PyDate_Check(value)) {
+        datetime = PyDateTimeAPI->DateTime_FromDateAndTime(
+                PyDateTime_GET_YEAR(value),
+                PyDateTime_GET_MONTH(value),
+                PyDateTime_GET_DAY(value),
+                0, 0, 0, 0, self->timezone,
+                PyDateTimeAPI->DateTimeType);
+        if (datetime) {
+            ret = Encoder_encode_datetime(self, datetime);
+            Py_DECREF(datetime);
+            return ret;
+        }
+    }
+    return NULL;
+}
+
+
 /* Encoder.encode_boolean(self, value) */
 static PyObject *
 Encoder_encode_boolean(EncoderObject *self, PyObject *value)
@@ -738,14 +938,14 @@ Encoder_encode_simple(EncoderObject *self, PyObject *args)
 {
     uint8_t value;
 
-    if (!PyArg_ParseTuple(args, "k", &value))
+    if (!PyArg_ParseTuple(args, "B", &value))
         return NULL;
     if (value < 20) {
         value |= 0xE0;
         if (Encoder__write(self, (char *)&value, 1) == -1)
             return NULL;
     } else {
-        if (Encoder__write(self, "0\xF8", 1) == -1)
+        if (Encoder__write(self, "\xF8", 1) == -1)
             return NULL;
         if (Encoder__write(self, (char *)&value, 1) == -1)
             return NULL;
@@ -986,7 +1186,7 @@ Encoder_encode(EncoderObject *self, PyObject *value)
 static PyMemberDef Encoder_members[] = {
     {"encoders", T_OBJECT_EX, offsetof(EncoderObject, encoders), READONLY,
         "the ordered dict mapping types to encoder functions"},
-    {"timestamp_format", T_INT, offsetof(EncoderObject, timestamp_format), 0,
+    {"timestamp_format", T_BOOL, offsetof(EncoderObject, timestamp_format), 0,
         "the sub-type to use when encoding datetime objects"},
     {"value_sharing", T_BOOL, offsetof(EncoderObject, value_sharing), 0,
         "if True, then efficiently encode recursive structures"},
@@ -998,6 +1198,8 @@ static PyGetSetDef Encoder_getsetters[] = {
         "output file-like object", NULL},
     {"default_handler", (getter) Encoder_getdefault, (setter) Encoder_setdefault,
         "default handler called when encoding unknown objects", NULL},
+    {"timezone", (getter) Encoder_gettimezone, (setter) Encoder_settimezone,
+        "the timezone to use when encoding naive datetime objects", NULL},
     {NULL}
 };
 
@@ -1016,6 +1218,10 @@ static PyMethodDef Encoder_methods[] = {
         "encode the None value to the output"},
     {"encode_undefined", (PyCFunction) Encoder_encode_undefined, METH_O,
         "encode the undefined value to the output"},
+    {"encode_datetime", (PyCFunction) Encoder_encode_datetime, METH_O,
+        "encode the datetime *value* to the output"},
+    {"encode_date", (PyCFunction) Encoder_encode_date, METH_O,
+        "encode the date *value* to the output"},
     {"encode_bytes", (PyCFunction) Encoder_encode_bytes, METH_O,
         "encode the specified bytes *value* to the output"},
     {"encode_bytearray", (PyCFunction) Encoder_encode_bytearray, METH_O,
@@ -1075,8 +1281,11 @@ PyMODINIT_FUNC
 PyInit__cboar(void)
 {
     PyObject *module;
-
     if (PyType_Ready(&EncoderType) < 0)
+        return NULL;
+
+    PyDateTime_IMPORT;
+    if (!PyDateTimeAPI)
         return NULL;
 
     module = PyModule_Create(&_cboarmodule);
