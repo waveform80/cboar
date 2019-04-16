@@ -1,5 +1,11 @@
 from distutils.core import setup, Extension
 
+_cboar = Extension(
+    '_cboar',
+    libraries=['m'],
+    sources=['source/cboarmodule.c']
+)
+
 classifiers = ['Development Status :: 5 - Production/Stable',
                'Operating System :: POSIX :: Linux',
                'License :: OSI Approved :: MIT License',
@@ -19,5 +25,5 @@ setup(
     url='https://github.com/waveform80/cboar.git',
     classifiers=classifiers,
     packages=['cboar'],
-    ext_modules=[Extension('_cboar', ['source/cboarmodule.c'])],
+    ext_modules=[_cboar],
 )
