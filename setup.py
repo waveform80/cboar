@@ -3,7 +3,7 @@ from distutils.core import setup, Extension
 _cboar = Extension(
     '_cboar',
     libraries=['m'],
-    sources=['source/cboarmodule.c']
+    sources=['source/cboarmodule.c', 'source/encoder.c', 'source/decoder.c']
 )
 
 classifiers = ['Development Status :: 5 - Production/Stable',
