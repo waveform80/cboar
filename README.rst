@@ -2,7 +2,7 @@
 CBOAR
 =====
 
-A high performance, flexible CBOR serialization library. Basic usage is as
+A high performance, flexible `CBOR serialization`_ library. Basic usage is as
 you'd expect::
 
     >>> import cboar as cbor
@@ -13,25 +13,32 @@ you'd expect::
     >>> cbor.loads(cbor.dumps('foo'))
     'foo'
 
+.. _CBOR serialization: https://cbor.io/
+
 Background
 ==========
 
-On the piwheels project we recently switched to CBOR for all our serialization
-needs. Partly this was down to security; we previously used pickle because it
-was quick to get started with, but obviously there's *awful* security holes
-there if you can't trust the nodes you're communicating with. Partly it was a
-matter of flexibility; JSON was considered and quickly rejected for not
+On the `piwheels`_ project we recently switched to CBOR for all our
+serialization needs. Partly this was down to security; we previously used pickle
+because it was quick to get started with, but obviously there's *awful* security
+holes there if you can't trust the nodes you're communicating with. Partly it
+was a matter of flexibility; JSON was considered and quickly rejected for not
 supporting half the data-types we wanted to transmit (timestamps, durations,
 sets, etc. - half the fun of Python is its rich datatypes!).
+
+.. _piwheels: https://github.com/bennuttall/piwheels
 
 Initially we settled on the `cbor2`_ library; it was extremely flexible and the
 code looked well written and tested. Unfortunately, while cbor2 is easily fast
 enough for the majority of purposes on a PC, we run piwheels on a pi and when
 chucking around large structures (e.g. the search index) cbor2 took quite a
-while to encode things. After a day of tweaking `cbor2`_ to try and improve the
+while to encode things. After a day of tweaking cbor2 to try and improve the
 performance, and trying pypy3 (nice idea, but it's not ready for primetime yet
 with various external libraries causing issues), I decided to move to a C-based
 implementation, specifically the popular `cbor`_ library.
+
+.. _cbor2: https://pypi.org/project/cbor2
+.. _cbor: https://pypi.org/project/cbor
 
 Quickly, we ran into issues: it doesn't support some types out of the box (sets
 and timestamps to name but two). No matter, it was flexible enough to provide a
