@@ -1188,17 +1188,48 @@ Encoder_encode(EncoderObject *self, PyObject *value)
 {
     PyObject *encoder, *ret = NULL;
 
-    encoder = Encoder__find_encoder(self, (PyObject *)Py_TYPE(value));
-    if (encoder) {
-        if (encoder != Py_None)
-            ret = PyObject_CallFunctionObjArgs(
-                    encoder, self, value, NULL);
-        else if (self->default_handler != Py_None)
-            ret = PyObject_CallFunctionObjArgs(
-                    self->default_handler, self, value, NULL);
-        else
-            PyErr_SetObject(PyExc_ValueError, (PyObject *)Py_TYPE(value));
-        Py_DECREF(encoder);
+    // Fast-path checks; these effectively override the contents of the
+    // encoders dict (so replacing the encoder mapping for, e.g. "int" won't
+    // affect which method is called) but then the primary purpose for this
+    // translation is speed. If replacing primary mappings is required, you're
+    // better off with the original cbor2.
+    if (PyBytes_CheckExact(value))
+        return Encoder_encode_bytes(self, value);
+    else if (PyByteArray_CheckExact(value))
+        return Encoder_encode_bytearray(self, value);
+    else if (PyUnicode_CheckExact(value))
+        return Encoder_encode_string(self, value);
+    else if (PyLong_CheckExact(value))
+        return Encoder_encode_int(self, value);
+    else if (PyFloat_CheckExact(value))
+        return Encoder_encode_float(self, value);
+    else if (PyBool_Check(value))
+        return Encoder_encode_boolean(self, value);
+    else if (value == Py_None)
+        return Encoder_encode_none(self, value);
+    else if (PyTuple_CheckExact(value))
+        return Encoder_encode_array(self, value);
+    else if (PyList_CheckExact(value))
+        return Encoder_encode_array(self, value);
+    else if (PyDict_CheckExact(value))
+        return Encoder_encode_map(self, value);
+    else if (PyDateTime_CheckExact(value))
+        return Encoder_encode_datetime(self, value);
+    else if (PyDate_CheckExact(value))
+        return Encoder_encode_date(self, value);
+    else {
+        encoder = Encoder__find_encoder(self, (PyObject *)Py_TYPE(value));
+        if (encoder) {
+            if (encoder != Py_None)
+                ret = PyObject_CallFunctionObjArgs(
+                        encoder, self, value, NULL);
+            else if (self->default_handler != Py_None)
+                ret = PyObject_CallFunctionObjArgs(
+                        self->default_handler, self, value, NULL);
+            else
+                PyErr_SetObject(PyExc_ValueError, (PyObject *)Py_TYPE(value));
+            Py_DECREF(encoder);
+        }
     }
     return ret;
 }
