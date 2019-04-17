@@ -365,10 +365,10 @@ Encoder__find_encoder(EncoderObject *self, PyObject *type)
             }
             Py_DECREF(items);
         }
+        if (!ret && !PyErr_Occurred())
+            ret = Py_None;
         if (ret)
             Py_INCREF(ret);
-        else if (!PyErr_Occurred())
-            PyErr_SetObject(PyExc_KeyError, type);
     }
     return ret;
 }
@@ -1190,7 +1190,14 @@ Encoder_encode(EncoderObject *self, PyObject *value)
 
     encoder = Encoder__find_encoder(self, (PyObject *)Py_TYPE(value));
     if (encoder) {
-        ret = PyObject_CallFunctionObjArgs(encoder, self, value, NULL);
+        if (encoder != Py_None)
+            ret = PyObject_CallFunctionObjArgs(
+                    encoder, self, value, NULL);
+        else if (self->default_handler != Py_None)
+            ret = PyObject_CallFunctionObjArgs(
+                    self->default_handler, self, value, NULL);
+        else
+            PyErr_SetObject(PyExc_ValueError, (PyObject *)Py_TYPE(value));
         Py_DECREF(encoder);
     }
     return ret;
@@ -1220,6 +1227,8 @@ static PyGetSetDef Encoder_getsetters[] = {
 static PyMethodDef Encoder_methods[] = {
     {"_find_encoder", (PyCFunction) Encoder__find_encoder, METH_O,
         "find an encoding function for the specified type"},
+    {"encode_length", (PyCFunction) Encoder_encode_length, METH_VARARGS,
+        "encode the specified *major_tag* with the specified *length* to the output"},
     {"encode", (PyCFunction) Encoder_encode, METH_O,
         "encode the specified *value* to the output"},
     {"encode_int", (PyCFunction) Encoder_encode_int, METH_O,
@@ -1246,9 +1255,7 @@ static PyMethodDef Encoder_methods[] = {
         "encode the specified sequence *value* to the output"},
     {"encode_map", (PyCFunction) Encoder_encode_map, METH_O,
         "encode the specified mapping *value* to the output"},
-    {"encode_length", (PyCFunction) Encoder_encode_length, METH_VARARGS,
-        "encode the specified *major_tag* with the specified *length* to the output"},
-    {"encode_semantic", (PyCFunction) Encoder_encode_semantic, METH_VARARGS,
+    {"encode_semantic", (PyCFunction) Encoder_encode_semantic, METH_O,
         "encode the specified CBORTag to the output"},
     {"encode_simple", (PyCFunction) Encoder_encode_simple, METH_O,
         "encode the specified CBORSimpleValue to the output"},
