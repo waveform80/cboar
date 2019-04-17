@@ -3,7 +3,7 @@ import re
 from collections import defaultdict, OrderedDict, namedtuple
 from datetime import datetime, date
 
-from _cboar import Encoder as BaseEncoder
+from _cboar import Encoder as BaseEncoder, Decoder as BaseDecoder
 
 
 class UndefinedType:
@@ -60,6 +60,11 @@ class Encoder(BaseEncoder):
             self.encoders.update(canonical_encoders)
 
 
+class Decoder(BaseDecoder):
+    def __init__(self, fp, tag_hook=None, object_hook=None):
+        super().__init__(fp, tag_hook, object_hook)
+
+
 def dumps(obj, **kwargs):
     fp = io.BytesIO()
     dump(obj, fp, **kwargs)
@@ -68,3 +73,12 @@ def dumps(obj, **kwargs):
 
 def dump(obj, fp, **kwargs):
     Encoder(fp, **kwargs).encode(obj)
+
+
+def loads(buf, **kwargs):
+    fp = io.BytesIO(buf)
+    return load(fp)
+
+
+def load(fp, **kwargs):
+    return Decoder(fp, **kwargs).decode()

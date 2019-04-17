@@ -1,6 +1,6 @@
 #define PY_SSIZE_T_CLEAN
-#include <stdbool.h>
 #include <Python.h>
+#include <stdbool.h>
 
 typedef struct {
     PyObject_HEAD

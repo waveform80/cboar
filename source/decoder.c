@@ -1,10 +1,10 @@
 #define PY_SSIZE_T_CLEAN
+#include <Python.h>
 #include <stdbool.h>
 #include <limits.h>
 #include <endian.h>
 #include <stdint.h>
 #include <math.h>
-#include <Python.h>
 #include <structmember.h>
 #include <datetime.h>
 #include "decoder.h"
@@ -187,6 +187,173 @@ Decoder_set_object_hook(DecoderObject *self, PyObject *value, void *closure)
 }
 
 
+static int
+Decoder__read(DecoderObject *self, char *buf, const uint32_t size)
+{
+    PyObject *obj;
+    char *data;
+    int ret = -1;
+
+    obj = PyObject_CallFunction(self->read, "k", size);
+    if (obj) {
+        assert(PyBytes_CheckExact(obj));
+        if (PyBytes_GET_SIZE(obj) == size) {
+            data = PyBytes_AS_STRING(obj);
+            memcpy(buf, data, size);
+            ret = 0;
+        }
+        Py_DECREF(obj);
+    }
+    return ret;
+}
+
+
+static int
+Decoder__decode_length(DecoderObject *self, uint8_t subtype,
+        uint64_t *length, bool *indefinite)
+{
+    union {
+        union { uint64_t value; char buf[sizeof(uint64_t)]; } u64;
+        union { uint32_t value; char buf[sizeof(uint32_t)]; } u32;
+        union { uint16_t value; char buf[sizeof(uint16_t)]; } u16;
+        union { uint8_t value;  char buf[sizeof(uint8_t)];  } u8;
+    } value;
+
+    if (subtype < 28) {
+        if (subtype < 24) {
+            *length = subtype;
+        } else if (subtype == 24) {
+            if (Decoder__read(self, value.u8.buf, sizeof(uint8_t)) == -1)
+                return -1;
+            *length = value.u8.value;
+        } else if (subtype == 25) {
+            if (Decoder__read(self, value.u16.buf, sizeof(uint16_t)) == -1)
+                return -1;
+            *length = be16toh(value.u16.value);
+        } else if (subtype == 26) {
+            if (Decoder__read(self, value.u32.buf, sizeof(uint32_t)) == -1)
+                return -1;
+            *length = be32toh(value.u32.value);
+        } else {
+            if (Decoder__read(self, value.u64.buf, sizeof(uint64_t)) == -1)
+                return -1;
+            *length = be64toh(value.u64.value);
+        }
+        if (indefinite)
+            *indefinite = false;
+        return 0;
+    } else if (subtype == 31 && indefinite && *indefinite) {
+        // well, indefinite is already true so nothing to see here...
+        return 0;
+    } else {
+        PyErr_Format(PyExc_ValueError, "unknown unsigned integer subtype 0x%x",
+                     subtype);
+        return -1;
+    }
+}
+
+
+static PyObject *
+Decoder__decode_uint(DecoderObject *self, uint8_t subtype)
+{
+    // major type 0
+    uint64_t length;
+
+    if (Decoder__decode_length(self, subtype, &length, NULL) == -1)
+        return NULL;
+    return PyLong_FromUnsignedLongLong(length);
+}
+
+
+static PyObject *
+Decoder__decode_negint(DecoderObject *self, uint8_t subtype)
+{
+    // major type 1
+    PyObject *value, *one, *ret = NULL;
+
+    value = Decoder__decode_uint(self, subtype);
+    if (value) {
+        one = PyLong_FromLong(1);
+        if (one) {
+            ret = PyNumber_Negative(value);
+            if (ret) {
+                Py_DECREF(value);
+                value = ret;
+                ret = PyNumber_Subtract(value, one);
+            }
+            Py_DECREF(one);
+        }
+        Py_DECREF(value);
+    }
+    return ret;
+}
+
+
+static PyObject *
+Decoder__decode_bytestring(DecoderObject *self, uint8_t subtype)
+{
+    // major type 2
+    PyObject *ret = NULL;
+    char *buf;
+    uint64_t length;
+    bool indefinite = true;
+
+    if (Decoder__decode_length(self, subtype, &length, &indefinite) == -1)
+        return NULL;
+    if (indefinite) {
+        // TODO
+    } else {
+        if (length > PY_SSIZE_T_MAX)
+            return NULL;
+        ret = PyBytes_FromStringAndSize(NULL, length);
+        if (!ret)
+            return NULL;
+        buf = PyBytes_AS_STRING(ret);
+        if (Decoder__read(self, buf, length) == -1) {
+            Py_DECREF(ret);
+            return NULL;
+        }
+        return ret;
+    }
+}
+
+
+#define PUBLIC_METHOD(type) \
+    static PyObject * \
+    Decoder_decode_##type(DecoderObject *self, PyObject *subtype) \
+    { \
+        return Decoder__decode_##type(self, PyLong_AsUnsignedLong(subtype)); \
+    }
+
+PUBLIC_METHOD(uint);
+PUBLIC_METHOD(negint);
+PUBLIC_METHOD(bytestring);
+
+
+/* Decoder.decode(self) -> obj */
+static PyObject *
+Decoder_decode(DecoderObject *self)
+{
+    union {
+        struct {
+            unsigned int subtype: 5;
+            unsigned int major: 3;
+        };
+        char byte;
+    } lead;
+
+    if (Decoder__read(self, &lead.byte, 1) == -1)
+        return NULL;
+    switch (lead.major) {
+        case 0: return Decoder__decode_uint(self, lead.subtype);
+        case 1: return Decoder__decode_negint(self, lead.subtype);
+        case 2: return Decoder__decode_bytestring(self, lead.subtype);
+    }
+
+    return NULL;
+}
+
+
 static PyGetSetDef Decoder_getsetters[] = {
     {"fp", (getter) Decoder_get_fp, (setter) Decoder_set_fp,
         "input file-like object", NULL},
@@ -198,15 +365,15 @@ static PyGetSetDef Decoder_getsetters[] = {
 };
 
 static PyMethodDef Decoder_methods[] = {
-    /*{"decode_length", (PyCFunction) Decoder_decode_length, METH_VARARGS,
-        "decode the length prefix from the input"},
-    {"decode", (PyCFunction) Decoder_decode, METH_O,
+    {"decode", (PyCFunction) Decoder_decode, METH_NOARGS,
         "decode the next value from the input"},
     {"decode_uint", (PyCFunction) Decoder_decode_uint, METH_O,
         "decode an unsigned integer from the input"},
     {"decode_negint", (PyCFunction) Decoder_decode_negint, METH_O,
         "decode a negative integer from the input"},
-    {"decode_float", (PyCFunction) Decoder_decode_float, METH_O,
+    {"decode_bytestring", (PyCFunction) Decoder_decode_bytestring, METH_O,
+        "decode a bytes string from the input"},
+    /*{"decode_float", (PyCFunction) Decoder_decode_float, METH_O,
         "decode a floating-point value from the input"},
     {"decode_boolean", (PyCFunction) Decoder_decode_boolean, METH_O,
         "decode a boolean value from the input"},*/

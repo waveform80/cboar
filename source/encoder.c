@@ -1,10 +1,10 @@
 #define PY_SSIZE_T_CLEAN
+#include <Python.h>
 #include <stdbool.h>
 #include <limits.h>
 #include <endian.h>
 #include <stdint.h>
 #include <math.h>
-#include <Python.h>
 #include <structmember.h>
 #include <datetime.h>
 #include "encoder.h"
@@ -519,6 +519,7 @@ Encoder_encode_int(EncoderObject *self, PyObject *value)
     long val;
     int overflow;
 
+    // TODO can we cover the full 64-bit range with PyLong_AsUnsignedLongLong?
     val = PyLong_AsLongAndOverflow(value, &overflow);
     if (overflow == 0) {
         // fast-path: technically this branch isn't needed, but longs are much
