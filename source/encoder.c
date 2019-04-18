@@ -7,6 +7,7 @@
 #include <math.h>
 #include <structmember.h>
 #include <datetime.h>
+#include "module.h"
 #include "encoder.h"
 
 
@@ -74,6 +75,12 @@ Encoder_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
 
     self = (EncoderObject *) type->tp_alloc(type, 0);
     if (self) {
+        self->shared = PyDict_New();
+        if (!self->shared) {
+            Py_DECREF(self);
+            return NULL;
+        }
+        self->encoders = NULL; // TODO set up OrderedDict here
         Py_INCREF(Py_None);
         self->write = Py_None;
         Py_INCREF(Py_None);
@@ -114,7 +121,7 @@ Encoder_init(EncoderObject *self, PyObject *args, PyObject *kwargs)
     collections = PyImport_ImportModule("collections");
     if (!collections)
         return -1;
-    ordered_dict = PyObject_GetAttrString(collections, "OrderedDict");
+    ordered_dict = PyObject_GetAttr(collections, _CBOAR_str_OrderedDict);
     Py_DECREF(collections);
     if (!ordered_dict)
         return -1;
@@ -124,12 +131,6 @@ Encoder_init(EncoderObject *self, PyObject *args, PyObject *kwargs)
     Py_DECREF(ordered_dict);
     Py_XDECREF(tmp);
     if (!self->encoders)
-        return -1;
-
-    tmp = self->shared;
-    self->shared = PyDict_New();
-    Py_XDECREF(tmp);
-    if (!self->shared)
         return -1;
 
     return 0;
@@ -156,7 +157,7 @@ Encoder_set_fp(EncoderObject *self, PyObject *value, void *closure)
         PyErr_SetString(PyExc_TypeError, "cannot delete fp attribute");
         return -1;
     }
-    write = PyObject_GetAttrString(value, "write");
+    write = PyObject_GetAttr(value, _CBOAR_str_write);
     if (!(write && PyCallable_Check(write))) {
         PyErr_SetString(PyExc_ValueError,
                         "fp object must have a callable write method");
@@ -396,7 +397,7 @@ Encoder__encode_length(EncoderObject *self, const uint8_t major_tag,
 
 
 static int
-Encoder__encode_semantic(EncoderObject *self, const uint32_t tag,
+Encoder__encode_semantic(EncoderObject *self, const uint64_t tag,
                          PyObject *value)
 {
     PyObject *obj;
@@ -482,10 +483,10 @@ Encoder_encode_length(EncoderObject *self, PyObject *args)
 static PyObject *
 Encoder_encode_semantic(EncoderObject *self, PyObject *args)
 {
-    uint32_t tag;
+    uint64_t tag;
     PyObject *value;
 
-    if (!PyArg_ParseTuple(args, "kO", &tag, &value))
+    if (!PyArg_ParseTuple(args, "KO", &tag, &value))
         return NULL;
     if (Encoder__encode_semantic(self, tag, value) == -1)
         return NULL;
@@ -556,7 +557,7 @@ Encoder_encode_int(EncoderObject *self, PyObject *value)
                 }
             }
         } else {
-            uint32_t major_tag;
+            uint8_t major_tag;
 
             if (overflow == -1) {
                 major_tag = 3;
@@ -569,12 +570,13 @@ Encoder_encode_int(EncoderObject *self, PyObject *value)
                 Py_INCREF(value);
             }
             if (value) {
-                PyObject *bits = PyObject_CallMethod(value, "bit_length", NULL);
+                PyObject *bits = PyObject_CallMethodObjArgs(
+                        value, _CBOAR_str_bit_length, NULL);
                 if (bits) {
                     long length = PyLong_AsLong(bits);
                     if (!PyErr_Occurred()) {
                         PyObject *buf = PyObject_CallMethod(
-                                value, "to_bytes", "ls", (length + 7) / 8, "big");
+                                value, "to_bytes", "ls#", (length + 7) / 8, "big", 3);
                         if (buf) {
                             if (Encoder__encode_semantic(self, major_tag, buf) == 0)
                                 ret = Py_None;
@@ -690,7 +692,7 @@ Encoder_encode_decimal(EncoderObject *self, PyObject *value)
 {
     PyObject *tmp, *zero, *ret = NULL;
 
-    tmp = PyObject_CallMethod(value, "is_nan", NULL);
+    tmp = PyObject_CallMethodObjArgs(value, _CBOAR_str_is_nan, NULL);
     if (tmp) {
         if (PyObject_IsTrue(tmp))
             if (Encoder__write(self, "\xF9\x7E\x00", 3) == 0)
@@ -698,7 +700,7 @@ Encoder_encode_decimal(EncoderObject *self, PyObject *value)
         Py_DECREF(tmp);
     }
     if (!ret) {
-        tmp = PyObject_CallMethod(value, "is_infinite", NULL);
+        tmp = PyObject_CallMethodObjArgs(value, _CBOAR_str_is_infinite, NULL);
         if (tmp) {
             if (PyObject_IsTrue(tmp)) {
                 zero = PyLong_FromLong(0);
@@ -720,7 +722,8 @@ Encoder_encode_decimal(EncoderObject *self, PyObject *value)
         }
     }
     if (!ret) {
-        PyObject *tuple = PyObject_CallMethod(value, "as_tuple", NULL);
+        PyObject *tuple = PyObject_CallMethodObjArgs(
+                value, _CBOAR_str_as_tuple, NULL);
         if (tuple) {
             bool sign;
             PyObject *digits, *exponent;
@@ -801,29 +804,23 @@ Encoder__encode_datestr(EncoderObject *self, PyObject *datestr)
 {
     char *buf;
     Py_ssize_t length, match;
-    static PyObject *utc_suffix = NULL;
 
-    if (!utc_suffix)
-        utc_suffix = PyUnicode_InternFromString("+00:00");
-
-    if (utc_suffix) {
-        match = PyUnicode_Tailmatch(
-            datestr, utc_suffix, PyUnicode_GET_LENGTH(datestr) - 6,
-            PyUnicode_GET_LENGTH(datestr), 1);
-        if (match != -1) {
-            buf = PyUnicode_AsUTF8AndSize(datestr, &length);
-            if (buf) {
-                if (Encoder__write(self, "\xC0", 1) == 0) {
-                    if (match) {
-                        if (Encoder__encode_length(self, 0x60, length - 5) == 0)
-                            if (Encoder__write(self, buf, length - 6) == 0)
-                                if (Encoder__write(self, "Z", 1) == 0)
-                                    Py_RETURN_NONE;
-                    } else {
-                        if (Encoder__encode_length(self, 0x60, length) == 0)
-                            if (Encoder__write(self, buf, length) == 0)
+    match = PyUnicode_Tailmatch(
+        datestr, _CBOAR_str_utc_suffix, PyUnicode_GET_LENGTH(datestr) - 6,
+        PyUnicode_GET_LENGTH(datestr), 1);
+    if (match != -1) {
+        buf = PyUnicode_AsUTF8AndSize(datestr, &length);
+        if (buf) {
+            if (Encoder__write(self, "\xC0", 1) == 0) {
+                if (match) {
+                    if (Encoder__encode_length(self, 0x60, length - 5) == 0)
+                        if (Encoder__write(self, buf, length - 6) == 0)
+                            if (Encoder__write(self, "Z", 1) == 0)
                                 Py_RETURN_NONE;
-                    }
+                } else {
+                    if (Encoder__encode_length(self, 0x60, length) == 0)
+                        if (Encoder__write(self, buf, length) == 0)
+                            Py_RETURN_NONE;
                 }
             }
         }
@@ -865,11 +862,13 @@ Encoder_encode_datetime(EncoderObject *self, PyObject *value)
 
         if (value) {
             if (self->timestamp_format) {
-                tmp = PyObject_CallMethod(value, "timestamp", NULL);
+                tmp = PyObject_CallMethodObjArgs(
+                        value, _CBOAR_str_timestamp, NULL);
                 if (tmp)
                     ret = Encoder__encode_timestamp(self, tmp);
             } else {
-                tmp = PyObject_CallMethod(value, "isoformat", NULL);
+                tmp = PyObject_CallMethodObjArgs(
+                        value, _CBOAR_str_isoformat, NULL);
                 if (tmp)
                     ret = Encoder__encode_datestr(self, tmp);
             }
@@ -967,9 +966,9 @@ Encoder_encode_rational(EncoderObject *self, PyObject *value)
 {
     PyObject *tuple, *num, *den, *ret = NULL;
 
-    num = PyObject_GetAttrString(value, "numerator");
+    num = PyObject_GetAttr(value, _CBOAR_str_numerator);
     if (num) {
-        den = PyObject_GetAttrString(value, "denominator");
+        den = PyObject_GetAttr(value, _CBOAR_str_denominator);
         if (den) {
             tuple = PyTuple_Pack(2, num, den);
             if (tuple) {
@@ -995,7 +994,7 @@ Encoder_encode_regex(EncoderObject *self, PyObject *value)
 {
     PyObject *pattern, *ret = NULL;
 
-    pattern = PyObject_GetAttrString(value, "pattern");
+    pattern = PyObject_GetAttr(value, _CBOAR_str_pattern);
     if (pattern) {
         if (Encoder__encode_semantic(self, 35, pattern) == 0)
             ret = Py_None;
@@ -1012,7 +1011,7 @@ Encoder_encode_mime(EncoderObject *self, PyObject *value)
 {
     PyObject *buf, *ret = NULL;
 
-    buf = PyObject_CallMethod(value, "as_string", NULL);
+    buf = PyObject_CallMethodObjArgs(value, _CBOAR_str_as_string, NULL);
     if (buf) {
         if (Encoder__encode_semantic(self, 36, buf) == 0)
             ret = Py_None;
@@ -1029,7 +1028,7 @@ Encoder_encode_uuid(EncoderObject *self, PyObject *value)
 {
     PyObject *bytes, *ret = NULL;
 
-    bytes = PyObject_GetAttrString(value, "bytes");
+    bytes = PyObject_GetAttr(value, _CBOAR_str_bytes);
     if (bytes) {
         if (Encoder__encode_semantic(self, 37, bytes) == 0)
             ret = Py_None;

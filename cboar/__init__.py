@@ -3,7 +3,7 @@ import re
 from collections import defaultdict, OrderedDict, namedtuple
 from datetime import datetime, date
 
-from _cboar import Encoder as BaseEncoder, Decoder as BaseDecoder
+from _cboar import Encoder as BaseEncoder, Decoder as BaseDecoder, CBORTag
 
 
 class UndefinedType:
@@ -14,7 +14,6 @@ class UndefinedType:
 undefined = UndefinedType()
 
 
-CBORTag = namedtuple('CBORTag', ('tag', 'value'))
 CBORSimpleValue = namedtuple('CBORSimpleValue', ('value',))
 
 
@@ -61,8 +60,8 @@ class Encoder(BaseEncoder):
 
 
 class Decoder(BaseDecoder):
-    def __init__(self, fp, tag_hook=None, object_hook=None):
-        super().__init__(fp, tag_hook, object_hook)
+    def __init__(self, fp, tag_hook=None, object_hook=None, str_errors='strict'):
+        super().__init__(fp, tag_hook, object_hook, str_errors)
 
 
 def dumps(obj, **kwargs):

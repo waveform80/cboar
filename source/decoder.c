@@ -1,5 +1,6 @@
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
+#include <string.h>
 #include <stdbool.h>
 #include <limits.h>
 #include <endian.h>
@@ -7,12 +8,30 @@
 #include <math.h>
 #include <structmember.h>
 #include <datetime.h>
+#include "module.h"
 #include "decoder.h"
 
+
+typedef
+    union {
+        struct {
+            unsigned int subtype: 5;
+            unsigned int major: 3;
+        };
+        char byte;
+    } LeadByte;
 
 static int Decoder_set_fp(DecoderObject *, PyObject *, void *);
 static int Decoder_set_tag_hook(DecoderObject *, PyObject *, void *);
 static int Decoder_set_object_hook(DecoderObject *, PyObject *, void *);
+static int Decoder_set_str_errors(DecoderObject *, PyObject *, void *);
+
+static PyObject * Decoder__decode_bytestring(DecoderObject *, uint8_t);
+static PyObject * Decoder__decode_string(DecoderObject *, uint8_t);
+
+static PyObject * Decoder_decode_shareable(DecoderObject *);
+static PyObject * Decoder_decode_set(DecoderObject *);
+static PyObject * Decoder_decode(DecoderObject *);
 
 
 /* Decoder.__del__(self) */
@@ -23,6 +42,7 @@ Decoder_dealloc(DecoderObject *self)
     Py_XDECREF(self->tag_hook);
     Py_XDECREF(self->object_hook);
     Py_XDECREF(self->shareables);
+    Py_XDECREF(self->str_errors);
     Py_TYPE(self)->tp_free((PyObject *) self);
 }
 
@@ -39,15 +59,20 @@ Decoder_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
 
     self = (DecoderObject *) type->tp_alloc(type, 0);
     if (self) {
+        self->shareables = PyDict_New();
+        if (!self->shareables) {
+            Py_DECREF(self);
+            return NULL;
+        }
         Py_INCREF(Py_None);
         self->read = Py_None;
         Py_INCREF(Py_None);
         self->tag_hook = Py_None;
         Py_INCREF(Py_None);
         self->object_hook = Py_None;
-        Py_INCREF(Py_None);
-        self->shareables = Py_None;
+        self->str_errors = PyBytes_FromString("strict");
         self->immutable = false;
+        self->shared_index = -1;
     }
     return (PyObject *) self;
 }
@@ -58,12 +83,13 @@ static int
 Decoder_init(DecoderObject *self, PyObject *args, PyObject *kwargs)
 {
     static char *keywords[] = {
-        "fp", "tag_hook", "object_hook", NULL
+        "fp", "tag_hook", "object_hook", "str_errors", NULL
     };
-    PyObject *fp = NULL, *tag_hook = NULL, *object_hook = NULL, *tmp;
+    PyObject *fp = NULL, *tag_hook = NULL, *object_hook = NULL,
+             *str_errors = NULL;
 
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|OO", keywords,
-                &fp, &tag_hook, &object_hook))
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|OOO", keywords,
+                &fp, &tag_hook, &object_hook, &str_errors))
         return -1;
 
     if (Decoder_set_fp(self, fp, NULL) == -1)
@@ -72,11 +98,7 @@ Decoder_init(DecoderObject *self, PyObject *args, PyObject *kwargs)
         return -1;
     if (object_hook && Decoder_set_object_hook(self, object_hook, NULL) == -1)
         return -1;
-
-    tmp = self->shareables;
-    self->shareables = PyDict_New();
-    Py_XDECREF(tmp);
-    if (!self->shareables)
+    if (str_errors && Decoder_set_str_errors(self, str_errors, NULL) == -1)
         return -1;
 
     return 0;
@@ -103,7 +125,7 @@ Decoder_set_fp(DecoderObject *self, PyObject *value, void *closure)
         PyErr_SetString(PyExc_TypeError, "cannot delete fp attribute");
         return -1;
     }
-    read = PyObject_GetAttrString(value, "read");
+    read = PyObject_GetAttr(value, _CBOAR_str_read);
     if (!(read && PyCallable_Check(read))) {
         PyErr_SetString(PyExc_ValueError,
                         "fp object must have a callable read method");
@@ -187,6 +209,54 @@ Decoder_set_object_hook(DecoderObject *self, PyObject *value, void *closure)
 }
 
 
+/* Decoder._get_str_errors(self) */
+static PyObject *
+Decoder_get_str_errors(DecoderObject *self, void *closure)
+{
+    return PyUnicode_DecodeASCII(
+            PyBytes_AS_STRING(self->str_errors),
+            PyBytes_GET_SIZE(self->str_errors), "strict");
+}
+
+
+/* Decoder._set_str_errors(self, value) */
+static int
+Decoder_set_str_errors(DecoderObject *self, PyObject *value, void *closure)
+{
+    PyObject *tmp, *bytes;
+
+    if (!value) {
+        PyErr_SetString(PyExc_TypeError,
+                        "cannot delete str_errors attribute");
+        return -1;
+    }
+    if (!PyUnicode_Check(value)) {
+        PyErr_SetString(PyExc_ValueError, "str_errors must be a str value");
+        return -1;
+    }
+    bytes = PyUnicode_AsASCIIString(value);
+    if (!bytes) {
+        PyErr_SetString(PyExc_ValueError,
+                "str_errors must be one of the strings: 'strict', 'error', "
+                "or 'replace'");
+        return -1;
+    }
+    if (strcmp(PyBytes_AS_STRING(bytes), "strict") &&
+            strcmp(PyBytes_AS_STRING(bytes), "error") &&
+            strcmp(PyBytes_AS_STRING(bytes), "replace")) {
+        PyErr_SetString(PyExc_ValueError,
+                "str_errors must be one of the strings: 'strict', 'error', "
+                "or 'replace'");
+        return -1;
+    }
+
+    tmp = self->str_errors;
+    self->str_errors = bytes;
+    Py_DECREF(tmp);
+    return 0;
+}
+
+
 static int
 Decoder__read(DecoderObject *self, char *buf, const uint32_t size)
 {
@@ -205,6 +275,23 @@ Decoder__read(DecoderObject *self, char *buf, const uint32_t size)
         Py_DECREF(obj);
     }
     return ret;
+}
+
+
+static PyObject *
+Decoder__set_shareable(DecoderObject *self, PyObject *container)
+{
+    PyObject *key;
+
+    if (self->shared_index == -1)
+        Py_RETURN_NONE;
+    // TODO use weakrefs? or explicitly empty dict?
+    key = PyLong_FromLong(self->shared_index);
+    if (key) {
+        PyDict_SetItem(self->shareables, key, container);
+        Py_DECREF(key);
+    }
+    Py_RETURN_NONE;
 }
 
 
@@ -290,57 +377,430 @@ Decoder__decode_negint(DecoderObject *self, uint8_t subtype)
 
 
 static PyObject *
+Decoder__decode_definite_bytestring(DecoderObject *self, uint64_t length)
+{
+    PyObject *ret = NULL;
+
+    if (length > PY_SSIZE_T_MAX)
+        return NULL;
+    ret = PyBytes_FromStringAndSize(NULL, length);
+    if (!ret)
+        return NULL;
+    if (Decoder__read(self, PyBytes_AS_STRING(ret), length) == -1) {
+        Py_DECREF(ret);
+        return NULL;
+    }
+    return ret;
+}
+
+
+static PyObject *
+Decoder__decode_indefinite_bytestrings(DecoderObject *self)
+{
+    PyObject *list, *ret = NULL;
+    LeadByte lead;
+
+    list = PyList_New(0);
+    if (list) {
+        while (1) {
+            if (Decoder__read(self, &lead.byte, 1) == -1)
+                break;
+            if (lead.major == 2) {
+                ret = Decoder__decode_bytestring(self, lead.subtype);
+                if (ret) {
+                    PyList_Append(list, ret);
+                    Py_DECREF(ret);
+                    ret = NULL;
+                }
+            } else if (lead.major == 7 && lead.subtype == 31) { // break-code
+                ret = PyObject_CallMethodObjArgs(
+                        _CBOAR_empty_bytes, _CBOAR_str_join, list, NULL);
+                break;
+            } else {
+                PyErr_SetString(PyExc_ValueError,
+                                "non-bytestring found in indefinite length "
+                                "bytestring");
+                break;
+            }
+        }
+        Py_DECREF(list);
+    }
+    return ret;
+}
+
+
+static PyObject *
 Decoder__decode_bytestring(DecoderObject *self, uint8_t subtype)
 {
     // major type 2
-    PyObject *ret = NULL;
-    char *buf;
     uint64_t length;
     bool indefinite = true;
 
     if (Decoder__decode_length(self, subtype, &length, &indefinite) == -1)
         return NULL;
-    if (indefinite) {
-        // TODO
-    } else {
-        if (length > PY_SSIZE_T_MAX)
-            return NULL;
-        ret = PyBytes_FromStringAndSize(NULL, length);
-        if (!ret)
-            return NULL;
-        buf = PyBytes_AS_STRING(ret);
-        if (Decoder__read(self, buf, length) == -1) {
-            Py_DECREF(ret);
-            return NULL;
+    if (indefinite)
+        return Decoder__decode_indefinite_bytestrings(self);
+    else
+        return Decoder__decode_definite_bytestring(self, length);
+}
+
+
+// NOTE: It may seem redundant to repeat the definite and indefinite routines
+// to handle UTF-8 strings but there is a reason to do this separately.
+// Specifically, the CBOR spec states (in sec. 2.2):
+//
+//     Text strings with indefinite lengths act the same as byte strings with
+//     indefinite lengths, except that all their chunks MUST be definite-length
+//     text strings.  Note that this implies that the bytes of a single UTF-8
+//     character cannot be spread between chunks: a new chunk can only be
+//     started at a character boundary.
+//
+// This precludes using the indefinite bytestring decoder above as that would
+// happily ignore UTF-8 characters split across chunks.
+
+
+static PyObject *
+Decoder__decode_definite_string(DecoderObject *self, uint64_t length)
+{
+    PyObject *ret = NULL;
+    char *buf;
+
+    if (length > PY_SSIZE_T_MAX)
+        return NULL;
+    buf = PyMem_Malloc(length);
+    if (!buf)
+        return PyErr_NoMemory();
+
+    if (Decoder__read(self, buf, length) == 0)
+        ret = PyUnicode_DecodeUTF8(
+                buf, length, PyBytes_AS_STRING(self->str_errors));
+    PyMem_Free(buf);
+    return ret;
+}
+
+
+static PyObject *
+Decoder__decode_indefinite_strings(DecoderObject *self)
+{
+    PyObject *list, *ret = NULL;
+    LeadByte lead;
+
+    list = PyList_New(0);
+    if (list) {
+        while (1) {
+            if (Decoder__read(self, &lead.byte, 1) == -1)
+                break;
+            if (lead.major == 3) {
+                ret = Decoder__decode_string(self, lead.subtype);
+                if (ret) {
+                    PyList_Append(list, ret);
+                    Py_DECREF(ret);
+                    ret = NULL;
+                }
+            } else if (lead.major == 7 && lead.subtype == 31) { // break-code
+                ret = PyObject_CallMethodObjArgs(
+                        _CBOAR_empty_str, _CBOAR_str_join, list, NULL);
+                break;
+            } else {
+                PyErr_SetString(PyExc_ValueError,
+                                "non-string found in indefinite length string");
+                break;
+            }
         }
-        return ret;
+        Py_DECREF(list);
+    }
+    return ret;
+}
+
+
+static PyObject *
+Decoder__decode_string(DecoderObject *self, uint8_t subtype)
+{
+    // major type 3
+    uint64_t length;
+    bool indefinite = true;
+
+    if (Decoder__decode_length(self, subtype, &length, &indefinite) == -1)
+        return NULL;
+    if (indefinite)
+        return Decoder__decode_indefinite_strings(self);
+    else
+        return Decoder__decode_definite_string(self, length);
+}
+
+
+static PyObject *
+Decoder__decode_indefinite_array(DecoderObject *self)
+{
+    PyObject *item, *ret = NULL;
+    bool fail;
+
+    ret = PyList_New(0);
+    if (ret) {
+        Decoder__set_shareable(self, ret);
+        while (1) {
+            // XXX Recursion
+            item = Decoder_decode(self);
+            if (item == break_marker) {
+                Py_DECREF(item);
+                break;
+            } else if (item) {
+                fail = PyList_Append(ret, item);
+                Py_DECREF(item);
+                if (fail)
+                    goto error;
+            } else
+                goto error;
+        }
+        if (self->immutable) {
+            PyObject *tmp = PyList_AsTuple(ret);
+            if (tmp) {
+                Py_DECREF(ret);
+                ret = tmp;
+            } else
+                goto error;
+        }
+    }
+    return ret;
+error:
+    Py_DECREF(ret);
+    return NULL;
+}
+
+
+static PyObject *
+Decoder__decode_definite_array(DecoderObject *self, uint64_t length)
+{
+    PyObject *item, *ret = NULL;
+
+    if (self->immutable) {
+        ret = PyTuple_New(length);
+        // XXX Danger Will Robinson! It's perfectly valid to share a tuple
+        // value, but this opens up the possibility of a tuple containing
+        // itself recursively which is normally impossible...
+        Decoder__set_shareable(self, ret);
+        if (ret) {
+            for (Py_ssize_t i = 0; i < length; ++i) {
+                // XXX Recursion
+                item = Decoder_decode(self);
+                if (item)
+                    PyTuple_SET_ITEM(ret, i, item);
+                else
+                    goto error;
+            }
+        }
+    } else {
+        ret = PyList_New(length);
+        Decoder__set_shareable(self, ret);
+        if (ret) {
+            for (Py_ssize_t i = 0; i < length; ++i) {
+                // XXX Recursion
+                item = Decoder_decode(self);
+                if (item)
+                    PyList_SET_ITEM(ret, i, item);
+                else
+                    goto error;
+            }
+        }
+    }
+    return ret;
+error:
+    Py_DECREF(ret);
+    return NULL;
+}
+
+
+static PyObject *
+Decoder__decode_array(DecoderObject *self, uint8_t subtype)
+{
+    // major type 4
+    uint64_t length;
+    bool indefinite = true;
+
+    if (Decoder__decode_length(self, subtype, &length, &indefinite) == -1)
+        return NULL;
+    if (indefinite)
+        return Decoder__decode_indefinite_array(self);
+    else
+        return Decoder__decode_definite_array(self, length);
+}
+
+
+static PyObject *
+Decoder__decode_map(DecoderObject *self, uint8_t subtype)
+{
+    // major type 5
+    uint64_t length;
+    bool old_immutable;
+    bool fail, indefinite = true;
+    PyObject *key, *value, *ret = NULL;
+
+    ret = PyDict_New();
+    if (ret) {
+        Decoder__set_shareable(self, ret);
+        if (Decoder__decode_length(self, subtype, &length, &indefinite) == 0) {
+            if (indefinite) {
+                while (1) {
+                    old_immutable = self->immutable;
+                    self->immutable = true;
+                    // XXX Recursion
+                    key = Decoder_decode(self);
+                    self->immutable = old_immutable;
+                    if (key == break_marker) {
+                        Py_DECREF(key);
+                        break;
+                    } else if (key) {
+                        // XXX Recursion
+                        value = Decoder_decode(self);
+                        if (value) {
+                            fail = PyDict_SetItem(ret, key, value);
+                            Py_DECREF(value);
+                        } else
+                            fail = true;
+                        Py_DECREF(key);
+                    } else
+                        goto error;
+                    if (fail)
+                        goto error;
+                }
+            } else {
+                while (length--) {
+                    old_immutable = self->immutable;
+                    self->immutable = true;
+                    // XXX Recursion
+                    key = Decoder_decode(self);
+                    self->immutable = old_immutable;
+                    if (key) {
+                        // XXX Recursion
+                        value = Decoder_decode(self);
+                        if (value) {
+                            fail = PyDict_SetItem(ret, key, value);
+                            Py_DECREF(value);
+                        } else
+                            fail = true;
+                        Py_DECREF(key);
+                    } else
+                        goto error;
+                    if (fail)
+                        goto error;
+                }
+            }
+        } else
+            goto error;
+    }
+    return ret;
+error:
+    Py_DECREF(ret);
+    return NULL;
+}
+
+
+static PyObject *
+Decoder__decode_semantic(DecoderObject *self, uint8_t subtype)
+{
+    // major type 6
+    uint64_t tagnum;
+    PyObject *tag, *ret = NULL;
+
+    if (Decoder__decode_length(self, subtype, &tagnum, NULL) == -1)
+        return NULL;
+    switch (tagnum) {
+        case 28: ret = Decoder_decode_shareable(self);
+        case 258: ret = Decoder_decode_set(self);
+        // TODO
+        default:
+            tag = PyStructSequence_New(&CBORTagType);
+            if (tag) {
+                PyStructSequence_SET_ITEM(tag, 0, PyLong_FromUnsignedLongLong(tagnum));
+                if (PyStructSequence_GET_ITEM(tag, 0)) {
+                    PyStructSequence_SET_ITEM(tag, 1, Decoder_decode(self));
+                    if (PyStructSequence_GET_ITEM(tag, 1)) {
+                        if (self->tag_hook == Py_None) {
+                            Py_INCREF(tag);
+                            ret = tag;
+                        } else
+                            ret = PyObject_CallFunctionObjArgs(self->tag_hook, self, tag, NULL);
+                    }
+                }
+                Py_DECREF(tag);
+            }
+    }
+    return ret;
+}
+
+
+static PyObject *
+Decoder__decode_special(DecoderObject *self, uint8_t subtype)
+{
+    // major type 7
+    // TODO
+    switch (subtype) {
+        case 20:
+            Py_RETURN_FALSE;
+        case 21:
+            Py_RETURN_TRUE;
+        case 22:
+            Py_RETURN_NONE;
+        case 31:
+            Py_INCREF(break_marker);
+            return break_marker;
+        default:
+            return NULL;
     }
 }
 
 
-#define PUBLIC_METHOD(type) \
-    static PyObject * \
-    Decoder_decode_##type(DecoderObject *self, PyObject *subtype) \
-    { \
-        return Decoder__decode_##type(self, PyLong_AsUnsignedLong(subtype)); \
-    }
+static PyObject *
+Decoder_decode_shareable(DecoderObject *self)
+{
+    // semantic type 28
+    int32_t old_index;
+    PyObject *key, *ret = NULL;
 
-PUBLIC_METHOD(uint);
-PUBLIC_METHOD(negint);
-PUBLIC_METHOD(bytestring);
+    old_index = self->shared_index;
+    self->shared_index = PyDict_Size(self->shareables);
+    key = PyLong_FromLong(self->shared_index);
+    if (key) {
+        if (PyDict_SetItem(self->shareables, key, Py_None) == 0) {
+            // XXX Recursive call
+            ret = Decoder_decode(self);
+        }
+        Py_DECREF(key);
+    }
+    self->shared_index = old_index;
+    return ret;
+}
+
+
+static PyObject *
+Decoder_decode_set(DecoderObject *self)
+{
+    // semantic type 258
+    bool old_immutable;
+    PyObject *tmp, *ret = NULL;
+
+    // TODO Warn/error when shared_index != 1
+    old_immutable = self->immutable;
+    self->immutable = true;
+    // XXX Recursive call
+    tmp = Decoder_decode(self);
+    self->immutable = old_immutable;
+    if (tmp) {
+        if (self->immutable)
+            ret = PyFrozenSet_New(tmp);
+        else
+            ret = PySet_New(tmp);
+        Py_DECREF(tmp);
+    }
+    return ret;
+}
 
 
 /* Decoder.decode(self) -> obj */
 static PyObject *
 Decoder_decode(DecoderObject *self)
 {
-    union {
-        struct {
-            unsigned int subtype: 5;
-            unsigned int major: 3;
-        };
-        char byte;
-    } lead;
+    LeadByte lead;
 
     if (Decoder__read(self, &lead.byte, 1) == -1)
         return NULL;
@@ -348,10 +808,32 @@ Decoder_decode(DecoderObject *self)
         case 0: return Decoder__decode_uint(self, lead.subtype);
         case 1: return Decoder__decode_negint(self, lead.subtype);
         case 2: return Decoder__decode_bytestring(self, lead.subtype);
+        case 3: return Decoder__decode_string(self, lead.subtype);
+        case 4: return Decoder__decode_array(self, lead.subtype);
+        case 5: return Decoder__decode_map(self, lead.subtype);
+        case 6: return Decoder__decode_semantic(self, lead.subtype);
+        case 7: return Decoder__decode_special(self, lead.subtype);
     }
 
     return NULL;
 }
+
+
+#define PUBLIC_MAJOR(type) \
+    static PyObject * \
+    Decoder_decode_##type(DecoderObject *self, PyObject *subtype) \
+    { \
+        return Decoder__decode_##type(self, PyLong_AsUnsignedLong(subtype)); \
+    }
+
+PUBLIC_MAJOR(uint);
+PUBLIC_MAJOR(negint);
+PUBLIC_MAJOR(bytestring);
+PUBLIC_MAJOR(string);
+PUBLIC_MAJOR(array);
+PUBLIC_MAJOR(map);
+PUBLIC_MAJOR(semantic);
+PUBLIC_MAJOR(special);
 
 
 static PyGetSetDef Decoder_getsetters[] = {
@@ -361,6 +843,8 @@ static PyGetSetDef Decoder_getsetters[] = {
         "hook called when decoding an unknown semantic tag", NULL},
     {"object_hook", (getter) Decoder_get_object_hook, (setter) Decoder_set_object_hook,
         "hook called when decoding any dict", NULL},
+    {"str_errors", (getter) Decoder_get_str_errors, (setter) Decoder_set_str_errors,
+        "the error mode to use when decoding UTF-8 encoded strings"},
     {NULL}
 };
 
@@ -373,6 +857,16 @@ static PyMethodDef Decoder_methods[] = {
         "decode a negative integer from the input"},
     {"decode_bytestring", (PyCFunction) Decoder_decode_bytestring, METH_O,
         "decode a bytes string from the input"},
+    {"decode_string", (PyCFunction) Decoder_decode_string, METH_O,
+        "decode a unicode string from the input"},
+    {"decode_array", (PyCFunction) Decoder_decode_array, METH_O,
+        "decode a list or tuple from the input"},
+    {"decode_map", (PyCFunction) Decoder_decode_map, METH_O,
+        "decode a dict from the input"},
+    {"decode_semantic", (PyCFunction) Decoder_decode_semantic, METH_O,
+        "decode a semantically tagged value from the input"},
+    {"decode_special", (PyCFunction) Decoder_decode_special, METH_O,
+        "decode a special value from the input"},
     /*{"decode_float", (PyCFunction) Decoder_decode_float, METH_O,
         "decode a floating-point value from the input"},
     {"decode_boolean", (PyCFunction) Decoder_decode_boolean, METH_O,
@@ -383,7 +877,7 @@ static PyMethodDef Decoder_methods[] = {
 PyTypeObject DecoderType = {
     PyVarObject_HEAD_INIT(NULL, 0)
     .tp_name = "_cboar.Decoder",
-    .tp_doc = "CBOAR encoder objects",
+    .tp_doc = "CBOAR decoder objects",
     .tp_basicsize = sizeof(DecoderObject),
     .tp_itemsize = 0,
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
@@ -393,4 +887,3 @@ PyTypeObject DecoderType = {
     .tp_getset = Decoder_getsetters,
     .tp_methods = Decoder_methods,
 };
-
