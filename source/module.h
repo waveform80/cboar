@@ -4,8 +4,15 @@
 extern PyObject _break_marker_obj;
 #define break_marker (&_break_marker_obj)
 
+// undefined singleton
+extern PyObject _undefined_obj;
+#define undefined (&_undefined_obj)
+
 // CBORTag namedtuple type
 extern PyTypeObject CBORTagType;
+
+// CBORSimpleValue namedtuple type
+extern PyTypeObject CBORSimpleValueType;
 
 // Various interned strings
 extern PyObject *_CBOAR_empty_bytes;

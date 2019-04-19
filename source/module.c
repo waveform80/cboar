@@ -36,8 +36,6 @@
 // any leaks you detect!
 
 
-PyTypeObject CBORTagType;
-
 PyObject *_CBOAR_empty_bytes = NULL;
 PyObject *_CBOAR_empty_str = NULL;
 PyObject *_CBOAR_str_as_string = NULL;
@@ -57,6 +55,8 @@ PyObject *_CBOAR_str_timestamp = NULL;
 PyObject *_CBOAR_str_utc_suffix = NULL;
 PyObject *_CBOAR_str_write = NULL;
 
+
+// break_marker singleton
 
 static PyObject *
 break_marker_repr(PyObject *op)
@@ -84,7 +84,7 @@ break_marker_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
 static int
 break_marker_bool(PyObject *v)
 {
-    return 0;
+    return 1;
 }
 
 static PyNumberMethods break_marker_as_number = {
@@ -107,6 +107,61 @@ PyObject _break_marker_obj = {
 };
 
 
+// undefined singleton
+
+static PyObject *
+undefined_repr(PyObject *op)
+{
+    return PyUnicode_FromString("undefined");
+}
+
+static void
+undefined_dealloc(PyObject *ignore)
+{
+    Py_FatalError("deallocating undefined");
+}
+
+static PyObject *
+undefined_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
+{
+    if (PyTuple_GET_SIZE(args) || (kwargs && PyDict_Size(kwargs))) {
+        PyErr_SetString(PyExc_TypeError, "undefined_type takes no arguments");
+        return NULL;
+    }
+    Py_INCREF(undefined);
+    return undefined;
+}
+
+static int
+undefined_bool(PyObject *v)
+{
+    return 0;
+}
+
+static PyNumberMethods undefined_as_number = {
+    .nb_bool = (inquiry) undefined_bool,
+};
+
+PyTypeObject undefined_type = {
+    PyVarObject_HEAD_INIT(&PyType_Type, 0)
+    .tp_name = "undefined_type",
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+    .tp_new = undefined_new,
+    .tp_dealloc = undefined_dealloc,
+    .tp_repr = undefined_repr,
+    .tp_as_number = &undefined_as_number,
+};
+
+PyObject _undefined_obj = {
+    _PyObject_EXTRA_INIT
+    1, &undefined_type
+};
+
+
+// CBORTag namedtuple
+
+PyTypeObject CBORTagType;
+
 static PyStructSequence_Field CBORTagFields[] = {
     {.name = "tag"},
     {.name = "value"},
@@ -119,6 +174,69 @@ static PyStructSequence_Desc CBORTagDesc = {
     .fields = CBORTagFields,
     .n_in_sequence = 2,
 };
+
+static PyObject *
+CBORTag_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
+{
+    static char *keywords[] = {"tag", "value", NULL};
+    PyObject *value = NULL, *tag, *ret;
+    uint64_t tagval;
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|KO", keywords, &tagval, &value))
+        return NULL;
+
+    ret = PyStructSequence_New(type);
+    if (!ret)
+        return NULL;
+    tag = PyLong_FromUnsignedLongLong(tagval);
+    if (!tag)
+        return NULL;
+    PyStructSequence_SET_ITEM(ret, 0, tag);
+    if (!value) {
+        Py_INCREF(Py_None);
+        value = Py_None;
+    }
+    Py_INCREF(value);
+    PyStructSequence_SET_ITEM(ret, 1, value);
+    return ret;
+}
+
+
+// CBORSimpleValue namedtuple
+
+PyTypeObject CBORSimpleValueType;
+
+static PyStructSequence_Field CBORSimpleValueFields[] = {
+    {.name = "value"},
+    {NULL},
+};
+
+static PyStructSequence_Desc CBORSimpleValueDesc = {
+    .name = "CBORSimpleValue",
+    .doc = NULL,  // TODO
+    .fields = CBORSimpleValueFields,
+    .n_in_sequence = 1,
+};
+
+static PyObject *
+CBORSimpleValue_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
+{
+    static char *keywords[] = {"value", NULL};
+    PyObject *value = NULL, *ret;
+    uint8_t val;
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "B", keywords, &val))
+        return NULL;
+
+    ret = PyStructSequence_New(type);
+    if (!ret)
+        return NULL;
+    value = PyLong_FromLong(val);
+    if (!value)
+        return NULL;
+    PyStructSequence_SET_ITEM(ret, 0, value);
+    return ret;
+}
 
 
 static struct PyModuleDef _cboarmodule = {
@@ -146,7 +264,15 @@ PyInit__cboar(void)
     if (PyStructSequence_InitType2(&CBORTagType, &CBORTagDesc) == -1)
         goto error;
     Py_INCREF((PyObject *) &CBORTagType);
+    CBORTagType.tp_new = CBORTag_new;
     if (PyModule_AddObject(module, "CBORTag", (PyObject *) &CBORTagType) == -1)
+        goto error;
+
+    if (PyStructSequence_InitType2(&CBORSimpleValueType, &CBORSimpleValueDesc) == -1)
+        goto error;
+    Py_INCREF((PyObject *) &CBORSimpleValueType);
+    CBORSimpleValueType.tp_new = CBORSimpleValue_new;
+    if (PyModule_AddObject(module, "CBORSimpleValue", (PyObject *) &CBORSimpleValueType) == -1)
         goto error;
 
     Py_INCREF(&EncoderType);
@@ -155,6 +281,14 @@ PyInit__cboar(void)
 
     Py_INCREF(&DecoderType);
     if (PyModule_AddObject(module, "Decoder", (PyObject *) &DecoderType) == -1)
+        goto error;
+
+    Py_INCREF(break_marker);
+    if (PyModule_AddObject(module, "break_marker", break_marker) == -1)
+        goto error;
+
+    Py_INCREF(undefined);
+    if (PyModule_AddObject(module, "undefined", undefined) == -1)
         goto error;
 
 #define INTERN_STRING(name) \
@@ -177,6 +311,8 @@ PyInit__cboar(void)
     INTERN_STRING(read);
     INTERN_STRING(timestamp);
     INTERN_STRING(write);
+
+#undef INTERN_STRING
 
     if (!_CBOAR_str_utc_suffix &&
             !(_CBOAR_str_utc_suffix = PyUnicode_InternFromString("+00:00")))

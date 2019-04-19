@@ -3,39 +3,39 @@ import re
 from collections import defaultdict, OrderedDict, namedtuple
 from datetime import datetime, date
 
-from _cboar import Encoder as BaseEncoder, Decoder as BaseDecoder, CBORTag
-
-
-class UndefinedType:
-    __slots__ = ()
-    def __repr__(self):
-        return "undefined"
-
-undefined = UndefinedType()
-
-
-CBORSimpleValue = namedtuple('CBORSimpleValue', ('value',))
+from _cboar import (
+    Encoder as BaseEncoder,
+    Decoder as BaseDecoder,
+    CBORTag,
+    CBORSimpleValue,
+    undefined,
+)
 
 
 default_encoders = [
+    # The following encoders are effectively hard-coded in the C-based class;
+    # you can't override them by adjusting these definitions (or by adjusting
+    # the BaseEncoder.encoders OrderedDict).
     (bytes,                           BaseEncoder.encode_bytes),
     (bytearray,                       BaseEncoder.encode_bytearray),
     (str,                             BaseEncoder.encode_string),
     (int,                             BaseEncoder.encode_int),
     (float,                           BaseEncoder.encode_float),
-    (('decimal', 'Decimal'),          BaseEncoder.encode_decimal),
     (bool,                            BaseEncoder.encode_boolean),
     (type(None),                      BaseEncoder.encode_none),
     (tuple,                           BaseEncoder.encode_array),
     (list,                            BaseEncoder.encode_array),
     (dict,                            BaseEncoder.encode_map),
+    (datetime,                        BaseEncoder.encode_datetime),
+    (date,                            BaseEncoder.encode_date),
+    # Everything from here is looked up from BaseEncoder.encoders, and is
+    # therefore customizable
+    (('decimal', 'Decimal'),          BaseEncoder.encode_decimal),
+    (('fractions', 'Fraction'),       BaseEncoder.encode_rational),
     (defaultdict,                     BaseEncoder.encode_map),
     (OrderedDict,                     BaseEncoder.encode_map),
     (type(undefined),                 BaseEncoder.encode_undefined),
-    (datetime,                        BaseEncoder.encode_datetime),
-    (date,                            BaseEncoder.encode_date),
     (type(re.compile('')),            BaseEncoder.encode_regex),
-    (('fractions', 'Fraction'),       BaseEncoder.encode_rational),
     (('email.message', 'Message'),    BaseEncoder.encode_mime),
     (('uuid', 'UUID'),                BaseEncoder.encode_uuid),
     (CBORTag,                         BaseEncoder.encode_semantic),
@@ -46,6 +46,7 @@ default_encoders = [
 
 
 canonical_encoders = [
+    # TODO
 ]
 
 
