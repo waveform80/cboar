@@ -495,7 +495,7 @@ Encoder__encode_negative(PyObject *value) {
 static PyObject *
 Encoder_encode_int(EncoderObject *self, PyObject *value)
 {
-    PyObject *ret = NULL;
+    PyObject *bits, *buf, *ret = NULL;
     long val;
     int overflow;
 
@@ -549,12 +549,12 @@ Encoder_encode_int(EncoderObject *self, PyObject *value)
                 Py_INCREF(value);
             }
             if (value) {
-                PyObject *bits = PyObject_CallMethodObjArgs(
+                bits = PyObject_CallMethodObjArgs(
                         value, _CBOAR_str_bit_length, NULL);
                 if (bits) {
                     long length = PyLong_AsLong(bits);
                     if (!PyErr_Occurred()) {
-                        PyObject *buf = PyObject_CallMethod(
+                        buf = PyObject_CallMethod(
                                 value, "to_bytes", "ls#", (length + 7) / 8, "big", 3);
                         if (buf) {
                             if (Encoder__encode_semantic(self, major_tag, buf) == 0)
@@ -634,6 +634,7 @@ Encoder_encode_float(EncoderObject *self, PyObject *value)
     union {
         double f;
         uint64_t i;
+        char buf[sizeof(double)];
     } u;
 
     u.f = PyFloat_AS_DOUBLE(value);
@@ -654,10 +655,11 @@ Encoder_encode_float(EncoderObject *self, PyObject *value)
             }
             break;
         default:
+            // TODO test for valid smaller precisions
             if (Encoder__write(self, "\xFB", 1) == -1)
                 return NULL;
             u.i = htobe64(u.i);
-            if (Encoder__write(self, (char*)(&u.i), sizeof(uint64_t)) == -1)
+            if (Encoder__write(self, u.buf, sizeof(double)) == -1)
                 return NULL;
             break;
     }
@@ -1029,6 +1031,7 @@ Encoder__encode_array(EncoderObject *self, PyObject *value)
         PyObject **items = PySequence_Fast_ITEMS(f);
         if (Encoder__encode_length(self, 0x80, length) == 0) {
             while (length) {
+                // XXX Recursion
                 if (!Encoder_encode(self, *items))
                     goto error;
                 items++;
@@ -1063,6 +1066,7 @@ Encoder__encode_map(EncoderObject *self, PyObject *value)
             Py_ssize_t pos = 0;
 
             while (PyDict_Next(value, &pos, &key, &val)) {
+                // XXX Recursion
                 if (!Encoder_encode(self, key))
                     return NULL;
                 if (!Encoder_encode(self, val))
@@ -1084,6 +1088,7 @@ Encoder__encode_map(EncoderObject *self, PyObject *value)
                 PyObject **items = PySequence_Fast_ITEMS(f);
                 if (Encoder__encode_length(self, 0xA0, length) == 0) {
                     while (length) {
+                        // XXX Recursion
                         if (!Encoder_encode(self, PyTuple_GET_ITEM(*items, 0)))
                             goto error;
                         if (!Encoder_encode(self, PyTuple_GET_ITEM(*items, 1)))
@@ -1127,6 +1132,7 @@ Encoder__encode_set(EncoderObject *self, PyObject *value)
                     PyObject *item;
 
                     while ((item = PyIter_Next(iter))) {
+                        // XXX Recursion
                         if (!Encoder_encode(self, item)) {
                             Py_DECREF(item);
                             goto error;

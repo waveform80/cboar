@@ -9,6 +9,7 @@
 #include <structmember.h>
 #include <datetime.h>
 #include "module.h"
+#include "halffloat.h"
 #include "decoder.h"
 
 
@@ -28,6 +29,11 @@ static int Decoder_set_str_errors(DecoderObject *, PyObject *, void *);
 
 static PyObject * Decoder__decode_bytestring(DecoderObject *, uint8_t);
 static PyObject * Decoder__decode_string(DecoderObject *, uint8_t);
+static PyObject * Decoder_decode_positive_bignum(DecoderObject *);
+static PyObject * Decoder_decode_negative_bignum(DecoderObject *);
+static PyObject * Decoder_decode_float16(DecoderObject *);
+static PyObject * Decoder_decode_float32(DecoderObject *);
+static PyObject * Decoder_decode_float64(DecoderObject *);
 
 static PyObject * Decoder_decode_shareable(DecoderObject *);
 static PyObject * Decoder_decode_set(DecoderObject *);
@@ -264,7 +270,7 @@ Decoder_set_str_errors(DecoderObject *self, PyObject *value, void *closure)
 // Utility methods ///////////////////////////////////////////////////////////
 
 static int
-Decoder__read(DecoderObject *self, char *buf, const uint32_t size)
+Decoder__read(DecoderObject *self, char *buf, const uint64_t size)
 {
     PyObject *obj;
     char *data;
@@ -300,8 +306,6 @@ Decoder__set_shareable(DecoderObject *self, PyObject *container)
     Py_RETURN_NONE;
 }
 
-
-// Decoding methods //////////////////////////////////////////////////////////
 
 static int
 Decoder__decode_length(DecoderObject *self, uint8_t subtype,
@@ -347,6 +351,8 @@ Decoder__decode_length(DecoderObject *self, uint8_t subtype,
     }
 }
 
+
+// Major decoders ////////////////////////////////////////////////////////////
 
 static PyObject *
 Decoder__decode_uint(DecoderObject *self, uint8_t subtype)
@@ -725,6 +731,8 @@ error:
     return NULL;
 }
 
+
+// Semantic decoders /////////////////////////////////////////////////////////
 
 static PyObject *
 Decoder__decode_semantic(DecoderObject *self, uint8_t subtype)
@@ -736,8 +744,10 @@ Decoder__decode_semantic(DecoderObject *self, uint8_t subtype)
     if (Decoder__decode_length(self, subtype, &tagnum, NULL) == -1)
         return NULL;
     switch (tagnum) {
-        case 28: ret = Decoder_decode_shareable(self);
-        case 258: ret = Decoder_decode_set(self);
+        case 2:   return Decoder_decode_positive_bignum(self);
+        case 3:   return Decoder_decode_negative_bignum(self);
+        case 28:  return Decoder_decode_shareable(self);
+        case 258: return Decoder_decode_set(self);
         // TODO
         default:
             tag = PyStructSequence_New(&CBORTagType);
@@ -750,30 +760,61 @@ Decoder__decode_semantic(DecoderObject *self, uint8_t subtype)
                             Py_INCREF(tag);
                             ret = tag;
                         } else
-                            ret = PyObject_CallFunctionObjArgs(self->tag_hook, self, tag, NULL);
+                            ret = PyObject_CallFunctionObjArgs(
+                                    self->tag_hook, self, tag, NULL);
                     }
                 }
                 Py_DECREF(tag);
             }
+            return ret;
+    }
+}
+
+
+static PyObject *
+Decoder_decode_positive_bignum(DecoderObject *self)
+{
+    // semantic type 2
+    PyObject *bytes, *ret = NULL;
+
+    // XXX Recursive call
+    bytes = Decoder_decode(self);
+    if (bytes) {
+        if (PyBytes_CheckExact(bytes)) {
+            ret = PyObject_CallMethod(
+                &PyLong_Type, "from_bytes", "Os#", bytes, "big", 3);
+            if (ret)
+                Decoder__set_shareable(self, ret);
+        } else
+            PyErr_SetString(PyExc_ValueError, "expected byte string for bignum");
+        Py_DECREF(bytes);
     }
     return ret;
 }
 
 
 static PyObject *
-Decoder__decode_special(DecoderObject *self, uint8_t subtype)
+Decoder_decode_negative_bignum(DecoderObject *self)
 {
-    // major type 7
-    // TODO
-    switch (subtype) {
-        case 20: Py_RETURN_FALSE;
-        case 21: Py_RETURN_TRUE;
-        case 22: Py_RETURN_NONE;
-        case 23: CBOAR_RETURN_UNDEFINED;
-        case 31: CBOAR_RETURN_BREAK;
-        default:
-            return NULL;
+    // semantic type 3
+    PyObject *value, *one, *neg, *ret = NULL;
+
+    value = Decoder_decode_positive_bignum(self);
+    if (value) {
+        one = PyLong_FromLong(1);
+        if (one) {
+            neg = PyNumber_Negative(value);
+            if (neg) {
+                ret = PyNumber_Subtract(neg, one);
+                if (ret)
+                    Decoder__set_shareable(self, ret);
+                Py_DECREF(neg);
+            }
+            Py_DECREF(one);
+        }
+        Py_DECREF(value);
     }
+    return ret;
 }
 
 
@@ -813,10 +854,13 @@ Decoder_decode_set(DecoderObject *self)
     tmp = Decoder_decode(self);
     self->immutable = old_immutable;
     if (tmp) {
-        if (self->immutable)
-            ret = PyFrozenSet_New(tmp);
-        else
-            ret = PySet_New(tmp);
+        if (PyList_CheckExact(tmp) || PyTuple_CheckExact(tmp)) {
+            if (self->immutable)
+                ret = PyFrozenSet_New(tmp);
+            else
+                ret = PySet_New(tmp);
+        } else
+            PyErr_SetString(PyExc_ValueError, "expected list or tuple for set");
         Py_DECREF(tmp);
     }
     // This can be done after construction of the set/frozenset because,
@@ -825,6 +869,85 @@ Decoder_decode_set(DecoderObject *self)
     // because it can't refer to itself during its own construction.
     if (ret)
         Decoder__set_shareable(self, ret);
+    return ret;
+}
+
+
+// Special decoders //////////////////////////////////////////////////////////
+
+static PyObject *
+Decoder__decode_special(DecoderObject *self, uint8_t subtype)
+{
+    // major type 7
+    // TODO
+    switch (subtype) {
+        case 20: Py_RETURN_FALSE;
+        case 21: Py_RETURN_TRUE;
+        case 22: Py_RETURN_NONE;
+        case 23: CBOAR_RETURN_UNDEFINED;
+        case 25: return Decoder_decode_float16(self);
+        case 26: return Decoder_decode_float32(self);
+        case 27: return Decoder_decode_float64(self);
+        case 31: CBOAR_RETURN_BREAK;
+        default: return NULL;
+    }
+}
+
+
+static PyObject *
+Decoder_decode_float16(DecoderObject *self)
+{
+    PyObject *ret = NULL;
+    union {
+        uint16_t i;
+        char buf[sizeof(uint16_t)];
+    } u;
+
+    if (Decoder__read(self, u.buf, sizeof(uint16_t)) == 0) {
+        ret = PyFloat_FromDouble(read_float16(u.i));
+        if (ret)
+            Decoder__set_shareable(self, ret);
+    }
+    return ret;
+}
+
+
+static PyObject *
+Decoder_decode_float32(DecoderObject *self)
+{
+    PyObject *ret = NULL;
+    union {
+        uint32_t i;
+        float f;
+        char buf[sizeof(float)];
+    } u;
+
+    if (Decoder__read(self, u.buf, sizeof(float)) == 0) {
+        u.i = be32toh(u.i);
+        ret = PyFloat_FromDouble((double)u.f);
+        if (ret)
+            Decoder__set_shareable(self, ret);
+    }
+    return ret;
+}
+
+
+static PyObject *
+Decoder_decode_float64(DecoderObject *self)
+{
+    PyObject *ret = NULL;
+    union {
+        uint64_t i;
+        double f;
+        char buf[sizeof(double)];
+    } u;
+
+    if (Decoder__read(self, u.buf, sizeof(double)) == 0) {
+        u.i = be64toh(u.i);
+        ret = PyFloat_FromDouble(u.f);
+        if (ret)
+            Decoder__set_shareable(self, ret);
+    }
     return ret;
 }
 
