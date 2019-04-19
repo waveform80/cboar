@@ -5,6 +5,37 @@
 #include "decoder.h"
 
 
+// Some notes on conventions in this code. All methods conform to a couple of
+// return styles:
+//
+// * PyObject* (mostly for methods accessible from Python) in which case a
+//   return value of NULL indicates an error, or
+//
+// * int (mostly for internal methods) in which case 0 indicates success and -1
+//   an error. This is in keeping with most of Python's C-API.
+//
+// In an attempt to avoid leaks a particular coding style is used where
+// possible:
+//
+// 1. As soon as a new reference to an object is generated / returned, a
+//    block like this follows: if (ref) { ... Py_DECREF(ref); }
+//
+// 2. The result is calculated in the "ret" local and returned only at the
+//    end of the function, once we're sure all references have been accounted
+//    for.
+//
+// 3. No "return" is permitted before the end of the function, and "break" or
+//    "goto" should be used over a minimal distance to ensure Py_DECREFs aren't
+//    jumped over.
+//
+// 4. The above rules are broken occasionally where necessary for clarity :)
+//
+// While this style helps ensure fewer leaks, it's worth noting it results in
+// rather "nested" code which looks a bit unusual / ugly for C. Furthermore,
+// it's not fool-proof; there's probably some leaks left. Please file bugs for
+// any leaks you detect!
+
+
 PyTypeObject CBORTagType;
 
 PyObject *_CBOAR_empty_bytes = NULL;
