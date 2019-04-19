@@ -571,6 +571,13 @@ Decoder__decode_indefinite_array(DecoderObject *self)
             if (tmp) {
                 Py_DECREF(ret);
                 ret = tmp;
+                // There's a potential here for an indefinite length recursive
+                // array to wind up with a strange representation (the outer
+                // being a tuple, the inners all being a list). However, a
+                // recursive tuple isn't valid in the first place so it's a bit
+                // of a waste of time searching for recursive references just
+                // to throw an error
+                Decoder__set_shareable(self, ret);
             } else
                 goto error;
         }
@@ -856,6 +863,8 @@ PUBLIC_MAJOR(array);
 PUBLIC_MAJOR(map);
 PUBLIC_MAJOR(semantic);
 PUBLIC_MAJOR(special);
+
+#undef PUBLIC_MAJOR
 
 
 static PyGetSetDef Decoder_getsetters[] = {
