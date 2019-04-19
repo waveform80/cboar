@@ -3,10 +3,12 @@
 // break_marker singleton
 extern PyObject _break_marker_obj;
 #define break_marker (&_break_marker_obj)
+#define CBOAR_RETURN_BREAK return Py_INCREF(break_marker), break_marker
 
 // undefined singleton
 extern PyObject _undefined_obj;
 #define undefined (&_undefined_obj)
+#define CBOAR_RETURN_UNDEFINED return Py_INCREF(undefined), undefined
 
 // CBORTag namedtuple type
 extern PyTypeObject CBORTagType;

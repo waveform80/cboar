@@ -33,8 +33,10 @@ static PyObject * Decoder_decode_shareable(DecoderObject *);
 static PyObject * Decoder_decode_set(DecoderObject *);
 static PyObject * Decoder_decode(DecoderObject *);
 
+
+// Constructors and destructors //////////////////////////////////////////////
 
-/* Decoder.__del__(self) */
+// Decoder.__del__(self)
 static void
 Decoder_dealloc(DecoderObject *self)
 {
@@ -47,7 +49,7 @@ Decoder_dealloc(DecoderObject *self)
 }
 
 
-/* Decoder.__new__(cls, *args, **kwargs) */
+// Decoder.__new__(cls, *args, **kwargs)
 static PyObject *
 Decoder_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
 {
@@ -78,7 +80,7 @@ Decoder_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
 }
 
 
-/* Decoder.__init__(self, fp=None, tag_hook=None, object_hook=None) */
+// Decoder.__init__(self, fp=None, tag_hook=None, object_hook=None)
 static int
 Decoder_init(DecoderObject *self, PyObject *args, PyObject *kwargs)
 {
@@ -104,8 +106,10 @@ Decoder_init(DecoderObject *self, PyObject *args, PyObject *kwargs)
     return 0;
 }
 
+
+// Property accessors ////////////////////////////////////////////////////////
 
-/* Decoder._get_fp(self) */
+// Decoder._get_fp(self)
 static PyObject *
 Decoder_get_fp(DecoderObject *self, void *closure)
 {
@@ -115,7 +119,7 @@ Decoder_get_fp(DecoderObject *self, void *closure)
 }
 
 
-/* Decoder._set_fp(self, value) */
+// Decoder._set_fp(self, value)
 static int
 Decoder_set_fp(DecoderObject *self, PyObject *value, void *closure)
 {
@@ -141,7 +145,7 @@ Decoder_set_fp(DecoderObject *self, PyObject *value, void *closure)
 }
 
 
-/* Decoder._get_tag_hook(self) */
+// Decoder._get_tag_hook(self)
 static PyObject *
 Decoder_get_tag_hook(DecoderObject *self, void *closure)
 {
@@ -150,7 +154,7 @@ Decoder_get_tag_hook(DecoderObject *self, void *closure)
 }
 
 
-/* Decoder._set_tag_hook(self, value) */
+// Decoder._set_tag_hook(self, value)
 static int
 Decoder_set_tag_hook(DecoderObject *self, PyObject *value, void *closure)
 {
@@ -175,7 +179,7 @@ Decoder_set_tag_hook(DecoderObject *self, PyObject *value, void *closure)
 }
 
 
-/* Decoder._get_object_hook(self) */
+// Decoder._get_object_hook(self)
 static PyObject *
 Decoder_get_object_hook(DecoderObject *self, void *closure)
 {
@@ -184,7 +188,7 @@ Decoder_get_object_hook(DecoderObject *self, void *closure)
 }
 
 
-/* Decoder._set_object_hook(self, value) */
+// Decoder._set_object_hook(self, value)
 static int
 Decoder_set_object_hook(DecoderObject *self, PyObject *value, void *closure)
 {
@@ -209,7 +213,7 @@ Decoder_set_object_hook(DecoderObject *self, PyObject *value, void *closure)
 }
 
 
-/* Decoder._get_str_errors(self) */
+// Decoder._get_str_errors(self)
 static PyObject *
 Decoder_get_str_errors(DecoderObject *self, void *closure)
 {
@@ -219,7 +223,7 @@ Decoder_get_str_errors(DecoderObject *self, void *closure)
 }
 
 
-/* Decoder._set_str_errors(self, value) */
+// Decoder._set_str_errors(self, value)
 static int
 Decoder_set_str_errors(DecoderObject *self, PyObject *value, void *closure)
 {
@@ -256,6 +260,8 @@ Decoder_set_str_errors(DecoderObject *self, PyObject *value, void *closure)
     return 0;
 }
 
+
+// Utility methods ///////////////////////////////////////////////////////////
 
 static int
 Decoder__read(DecoderObject *self, char *buf, const uint32_t size)
@@ -294,6 +300,8 @@ Decoder__set_shareable(DecoderObject *self, PyObject *container)
     Py_RETURN_NONE;
 }
 
+
+// Decoding methods //////////////////////////////////////////////////////////
 
 static int
 Decoder__decode_length(DecoderObject *self, uint8_t subtype,
@@ -758,15 +766,11 @@ Decoder__decode_special(DecoderObject *self, uint8_t subtype)
     // major type 7
     // TODO
     switch (subtype) {
-        case 20:
-            Py_RETURN_FALSE;
-        case 21:
-            Py_RETURN_TRUE;
-        case 22:
-            Py_RETURN_NONE;
-        case 31:
-            Py_INCREF(break_marker);
-            return break_marker;
+        case 20: Py_RETURN_FALSE;
+        case 21: Py_RETURN_TRUE;
+        case 22: Py_RETURN_NONE;
+        case 23: CBOAR_RETURN_UNDEFINED;
+        case 31: CBOAR_RETURN_BREAK;
         default:
             return NULL;
     }
@@ -825,7 +829,7 @@ Decoder_decode_set(DecoderObject *self)
 }
 
 
-/* Decoder.decode(self) -> obj */
+// Decoder.decode(self) -> obj
 static PyObject *
 Decoder_decode(DecoderObject *self)
 {
@@ -847,11 +851,13 @@ Decoder_decode(DecoderObject *self)
     return NULL;
 }
 
+
+// Decoder class definition //////////////////////////////////////////////////
 
-#define PUBLIC_MAJOR(type) \
-    static PyObject * \
-    Decoder_decode_##type(DecoderObject *self, PyObject *subtype) \
-    { \
+#define PUBLIC_MAJOR(type)                                                   \
+    static PyObject *                                                        \
+    Decoder_decode_##type(DecoderObject *self, PyObject *subtype)            \
+    {                                                                        \
         return Decoder__decode_##type(self, PyLong_AsUnsignedLong(subtype)); \
     }
 
@@ -865,7 +871,6 @@ PUBLIC_MAJOR(semantic);
 PUBLIC_MAJOR(special);
 
 #undef PUBLIC_MAJOR
-
 
 static PyGetSetDef Decoder_getsetters[] = {
     {"fp", (getter) Decoder_get_fp, (setter) Decoder_set_fp,

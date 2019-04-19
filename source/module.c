@@ -55,8 +55,8 @@ PyObject *_CBOAR_str_timestamp = NULL;
 PyObject *_CBOAR_str_utc_suffix = NULL;
 PyObject *_CBOAR_str_write = NULL;
 
-
-// break_marker singleton
+
+// break_marker singleton ////////////////////////////////////////////////////
 
 static PyObject *
 break_marker_repr(PyObject *op)
@@ -106,8 +106,8 @@ PyObject _break_marker_obj = {
     1, &break_marker_type
 };
 
-
-// undefined singleton
+
+// undefined singleton ///////////////////////////////////////////////////////
 
 static PyObject *
 undefined_repr(PyObject *op)
@@ -157,8 +157,8 @@ PyObject _undefined_obj = {
     1, &undefined_type
 };
 
-
-// CBORTag namedtuple
+
+// CBORTag namedtuple ////////////////////////////////////////////////////////
 
 PyTypeObject CBORTagType;
 
@@ -201,8 +201,8 @@ CBORTag_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
     return ret;
 }
 
-
-// CBORSimpleValue namedtuple
+
+// CBORSimpleValue namedtuple ////////////////////////////////////////////////
 
 PyTypeObject CBORSimpleValueType;
 
@@ -238,6 +238,8 @@ CBORSimpleValue_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
     return ret;
 }
 
+
+// Module definition /////////////////////////////////////////////////////////
 
 static struct PyModuleDef _cboarmodule = {
     PyModuleDef_HEAD_INIT,
@@ -245,7 +247,6 @@ static struct PyModuleDef _cboarmodule = {
     .m_doc = NULL,
     .m_size = -1, // XXX Change to 0?
 };
-
 
 PyMODINIT_FUNC
 PyInit__cboar(void)
@@ -272,7 +273,8 @@ PyInit__cboar(void)
         goto error;
     Py_INCREF((PyObject *) &CBORSimpleValueType);
     CBORSimpleValueType.tp_new = CBORSimpleValue_new;
-    if (PyModule_AddObject(module, "CBORSimpleValue", (PyObject *) &CBORSimpleValueType) == -1)
+    if (PyModule_AddObject(
+            module, "CBORSimpleValue", (PyObject *) &CBORSimpleValueType) == -1)
         goto error;
 
     Py_INCREF(&EncoderType);
@@ -291,8 +293,8 @@ PyInit__cboar(void)
     if (PyModule_AddObject(module, "undefined", undefined) == -1)
         goto error;
 
-#define INTERN_STRING(name) \
-    if (!_CBOAR_str_##name && \
+#define INTERN_STRING(name)                                           \
+    if (!_CBOAR_str_##name &&                                         \
             !(_CBOAR_str_##name = PyUnicode_InternFromString(#name))) \
         goto error;
 

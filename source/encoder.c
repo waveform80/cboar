@@ -20,8 +20,10 @@ static int Encoder_set_fp(EncoderObject *, PyObject *, void *);
 static int Encoder_set_default(EncoderObject *, PyObject *, void *);
 static int Encoder_set_timezone(EncoderObject *, PyObject *, void *);
 
+
+// Constructors and destructors //////////////////////////////////////////////
 
-/* Encoder.__del__(self) */
+// Encoder.__del__(self)
 static void
 Encoder_dealloc(EncoderObject *self)
 {
@@ -34,7 +36,7 @@ Encoder_dealloc(EncoderObject *self)
 }
 
 
-/* Encoder.__new__(cls, *args, **kwargs) */
+// Encoder.__new__(cls, *args, **kwargs)
 static PyObject *
 Encoder_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
 {
@@ -65,8 +67,8 @@ Encoder_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
 }
 
 
-/* Encoder.__init__(self, fp=None, default_handler=None, timestamp_format=0,
- *                  value_sharing=False) */
+// Encoder.__init__(self, fp=None, default_handler=None, timestamp_format=0,
+//                  value_sharing=False)
 static int
 Encoder_init(EncoderObject *self, PyObject *args, PyObject *kwargs)
 {
@@ -107,8 +109,10 @@ Encoder_init(EncoderObject *self, PyObject *args, PyObject *kwargs)
     return 0;
 }
 
+
+// Property accessors ////////////////////////////////////////////////////////
 
-/* Encoder._get_fp(self) */
+// Encoder._get_fp(self)
 static PyObject *
 Encoder_get_fp(EncoderObject *self, void *closure)
 {
@@ -118,7 +122,7 @@ Encoder_get_fp(EncoderObject *self, void *closure)
 }
 
 
-/* Encoder._set_fp(self, value) */
+// Encoder._set_fp(self, value)
 static int
 Encoder_set_fp(EncoderObject *self, PyObject *value, void *closure)
 {
@@ -148,7 +152,7 @@ Encoder_set_fp(EncoderObject *self, PyObject *value, void *closure)
 }
 
 
-/* Encoder._get_default(self) */
+// Encoder._get_default(self)
 static PyObject *
 Encoder_get_default(EncoderObject *self, void *closure)
 {
@@ -157,7 +161,7 @@ Encoder_get_default(EncoderObject *self, void *closure)
 }
 
 
-/* Encoder._set_default(self, value) */
+// Encoder._set_default(self, value)
 static int
 Encoder_set_default(EncoderObject *self, PyObject *value, void *closure)
 {
@@ -182,7 +186,7 @@ Encoder_set_default(EncoderObject *self, PyObject *value, void *closure)
 }
 
 
-/* Encoder._get_timezone(self) */
+// Encoder._get_timezone(self)
 static PyObject *
 Encoder_get_timezone(EncoderObject *self, void *closure)
 {
@@ -191,7 +195,7 @@ Encoder_get_timezone(EncoderObject *self, void *closure)
 }
 
 
-/* Encoder._set_timezone(self, value) */
+// Encoder._set_timezone(self, value)
 static int
 Encoder_set_timezone(EncoderObject *self, PyObject *value, void *closure)
 {
@@ -214,6 +218,8 @@ Encoder_set_timezone(EncoderObject *self, PyObject *value, void *closure)
     return 0;
 }
 
+
+// Utility methods ///////////////////////////////////////////////////////////
 
 static int
 Encoder__write(EncoderObject *self, const char *buf, const int length)
@@ -291,7 +297,7 @@ Encoder__replace_type(EncoderObject *self, PyObject *item)
 }
 
 
-/* Encoder._find_encoder(type) */
+// Encoder._find_encoder(type)
 static PyObject *
 Encoder__find_encoder(EncoderObject *self, PyObject *type)
 {
@@ -337,6 +343,8 @@ Encoder__find_encoder(EncoderObject *self, PyObject *type)
     return ret;
 }
 
+
+// Encoding methods //////////////////////////////////////////////////////////
 
 static int
 Encoder__encode_length(EncoderObject *self, const uint8_t major_tag,
@@ -435,7 +443,7 @@ Encoder__encode_shared(EncoderObject *self, EncodeFunction *encoder,
 }
 
 
-/* Encoder.encode_length(self, major_tag, length) */
+// Encoder.encode_length(self, major_tag, length)
 static PyObject *
 Encoder_encode_length(EncoderObject *self, PyObject *args)
 {
@@ -450,7 +458,7 @@ Encoder_encode_length(EncoderObject *self, PyObject *args)
 }
 
 
-/* Encoder.encode_semantic(self, (tag, value)) */
+// Encoder.encode_semantic(self, (tag, value))
 static PyObject *
 Encoder_encode_semantic(EncoderObject *self, PyObject *args)
 {
@@ -483,7 +491,7 @@ Encoder__encode_negative(PyObject *value) {
 }
 
 
-/* Encoder.encode_int(self, value) */
+// Encoder.encode_int(self, value)
 static PyObject *
 Encoder_encode_int(EncoderObject *self, PyObject *value)
 {
@@ -565,7 +573,7 @@ Encoder_encode_int(EncoderObject *self, PyObject *value)
 }
 
 
-/* Encoder.encode_bytes(self, value) */
+// Encoder.encode_bytes(self, value)
 static PyObject *
 Encoder_encode_bytes(EncoderObject *self, PyObject *value)
 {
@@ -582,7 +590,7 @@ Encoder_encode_bytes(EncoderObject *self, PyObject *value)
 }
 
 
-/* Encoder.encode_bytearray(self, value) */
+// Encoder.encode_bytearray(self, value)
 static PyObject *
 Encoder_encode_bytearray(EncoderObject *self, PyObject *value)
 {
@@ -601,7 +609,7 @@ Encoder_encode_bytearray(EncoderObject *self, PyObject *value)
 }
 
 
-/* Encoder.encode_string(self, value) */
+// Encoder.encode_string(self, value)
 static PyObject *
 Encoder_encode_string(EncoderObject *self, PyObject *value)
 {
@@ -619,7 +627,7 @@ Encoder_encode_string(EncoderObject *self, PyObject *value)
 }
 
 
-/* Encoder.encode_float(self, value) */
+// Encoder.encode_float(self, value)
 static PyObject *
 Encoder_encode_float(EncoderObject *self, PyObject *value)
 {
@@ -657,7 +665,7 @@ Encoder_encode_float(EncoderObject *self, PyObject *value)
 }
 
 
-/* Encoder.encode_decimal(self, value) */
+// Encoder.encode_decimal(self, value)
 static PyObject *
 Encoder_encode_decimal(EncoderObject *self, PyObject *value)
 {
@@ -800,7 +808,7 @@ Encoder__encode_datestr(EncoderObject *self, PyObject *datestr)
 }
 
 
-/* Encoder.encode_datetime(self, value) */
+// Encoder.encode_datetime(self, value)
 static PyObject *
 Encoder_encode_datetime(EncoderObject *self, PyObject *value)
 {
@@ -851,7 +859,7 @@ Encoder_encode_datetime(EncoderObject *self, PyObject *value)
 }
 
 
-/* Encoder.encode_date(self, value) */
+// Encoder.encode_date(self, value)
 static PyObject *
 Encoder_encode_date(EncoderObject *self, PyObject *value)
 {
@@ -874,7 +882,7 @@ Encoder_encode_date(EncoderObject *self, PyObject *value)
 }
 
 
-/* Encoder.encode_boolean(self, value) */
+// Encoder.encode_boolean(self, value)
 static PyObject *
 Encoder_encode_boolean(EncoderObject *self, PyObject *value)
 {
@@ -889,7 +897,7 @@ Encoder_encode_boolean(EncoderObject *self, PyObject *value)
 }
 
 
-/* Encoder.encode_none(self, value) */
+// Encoder.encode_none(self, value)
 static PyObject *
 Encoder_encode_none(EncoderObject *self, PyObject *value)
 {
@@ -899,7 +907,7 @@ Encoder_encode_none(EncoderObject *self, PyObject *value)
 }
 
 
-/* Encoder.encode_undefined(self, value) */
+// Encoder.encode_undefined(self, value)
 static PyObject *
 Encoder_encode_undefined(EncoderObject *self, PyObject *value)
 {
@@ -909,7 +917,7 @@ Encoder_encode_undefined(EncoderObject *self, PyObject *value)
 }
 
 
-/* Encoder.encode_simple(self, (value,)) */
+// Encoder.encode_simple(self, (value,))
 static PyObject *
 Encoder_encode_simple(EncoderObject *self, PyObject *args)
 {
@@ -931,7 +939,7 @@ Encoder_encode_simple(EncoderObject *self, PyObject *args)
 }
 
 
-/* Encoder.encode_rational(self, value) */
+// Encoder.encode_rational(self, value)
 static PyObject *
 Encoder_encode_rational(EncoderObject *self, PyObject *value)
 {
@@ -959,7 +967,7 @@ Encoder_encode_rational(EncoderObject *self, PyObject *value)
 }
 
 
-/* Encoder.encode_regex(self, value) */
+// Encoder.encode_regex(self, value)
 static PyObject *
 Encoder_encode_regex(EncoderObject *self, PyObject *value)
 {
@@ -976,7 +984,7 @@ Encoder_encode_regex(EncoderObject *self, PyObject *value)
 }
 
 
-/* Encoder.encode_mime(self, value) */
+// Encoder.encode_mime(self, value)
 static PyObject *
 Encoder_encode_mime(EncoderObject *self, PyObject *value)
 {
@@ -993,7 +1001,7 @@ Encoder_encode_mime(EncoderObject *self, PyObject *value)
 }
 
 
-/* Encoder.encode_uuid(self, value) */
+// Encoder.encode_uuid(self, value)
 static PyObject *
 Encoder_encode_uuid(EncoderObject *self, PyObject *value)
 {
@@ -1035,7 +1043,8 @@ error:
     return ret;
 }
 
-/* Encoder.encode_array(self, value) */
+
+// Encoder.encode_array(self, value)
 static PyObject *
 Encoder_encode_array(EncoderObject *self, PyObject *value)
 {
@@ -1094,7 +1103,8 @@ error:
     return ret;
 }
 
-/* Encoder.encode_map(self, value) */
+
+// Encoder.encode_map(self, value)
 static PyObject *
 Encoder_encode_map(EncoderObject *self, PyObject *value)
 {
@@ -1137,7 +1147,7 @@ error:
 }
 
 
-/* Encoder.encode_set(self, value) */
+// Encoder.encode_set(self, value)
 static PyObject *
 Encoder_encode_set(EncoderObject *self, PyObject *value)
 {
@@ -1145,7 +1155,7 @@ Encoder_encode_set(EncoderObject *self, PyObject *value)
 }
 
 
-/* Encoder.encode(self, value) */
+// Encoder.encode(self, value)
 static PyObject *
 Encoder_encode(EncoderObject *self, PyObject *value)
 {
@@ -1197,6 +1207,8 @@ Encoder_encode(EncoderObject *self, PyObject *value)
     return ret;
 }
 
+
+// Encoder class definition //////////////////////////////////////////////////
 
 static PyMemberDef Encoder_members[] = {
     {"encoders", T_OBJECT_EX, offsetof(EncoderObject, encoders), READONLY,
