@@ -345,10 +345,14 @@ Decoder__decode_uint(DecoderObject *self, uint8_t subtype)
 {
     // major type 0
     uint64_t length;
+    PyObject *ret;
 
     if (Decoder__decode_length(self, subtype, &length, NULL) == -1)
         return NULL;
-    return PyLong_FromUnsignedLongLong(length);
+    ret = PyLong_FromUnsignedLongLong(length);
+    if (ret)
+        Decoder__set_shareable(self, ret);
+    return ret;
 }
 
 
@@ -367,6 +371,8 @@ Decoder__decode_negint(DecoderObject *self, uint8_t subtype)
                 Py_DECREF(value);
                 value = ret;
                 ret = PyNumber_Subtract(value, one);
+                if (ret)
+                    Decoder__set_shareable(self, ret);
             }
             Py_DECREF(one);
         }
@@ -435,13 +441,17 @@ Decoder__decode_bytestring(DecoderObject *self, uint8_t subtype)
     // major type 2
     uint64_t length;
     bool indefinite = true;
+    PyObject *ret;
 
     if (Decoder__decode_length(self, subtype, &length, &indefinite) == -1)
         return NULL;
     if (indefinite)
-        return Decoder__decode_indefinite_bytestrings(self);
+        ret = Decoder__decode_indefinite_bytestrings(self);
     else
-        return Decoder__decode_definite_bytestring(self, length);
+        ret = Decoder__decode_definite_bytestring(self, length);
+    if (ret)
+        Decoder__set_shareable(self, ret);
+    return ret;
 }
 
 
@@ -519,13 +529,17 @@ Decoder__decode_string(DecoderObject *self, uint8_t subtype)
     // major type 3
     uint64_t length;
     bool indefinite = true;
+    PyObject *ret;
 
     if (Decoder__decode_length(self, subtype, &length, &indefinite) == -1)
         return NULL;
     if (indefinite)
-        return Decoder__decode_indefinite_strings(self);
+        ret = Decoder__decode_indefinite_strings(self);
     else
-        return Decoder__decode_definite_string(self, length);
+        ret = Decoder__decode_definite_string(self, length);
+    if (ret)
+        Decoder__set_shareable(self, ret);
+    return ret;
 }
 
 
@@ -575,10 +589,6 @@ Decoder__decode_definite_array(DecoderObject *self, uint64_t length)
 
     if (self->immutable) {
         ret = PyTuple_New(length);
-        // XXX Danger Will Robinson! It's perfectly valid to share a tuple
-        // value, but this opens up the possibility of a tuple containing
-        // itself recursively which is normally impossible...
-        Decoder__set_shareable(self, ret);
         if (ret) {
             for (Py_ssize_t i = 0; i < length; ++i) {
                 // XXX Recursion
@@ -589,6 +599,12 @@ Decoder__decode_definite_array(DecoderObject *self, uint64_t length)
                     goto error;
             }
         }
+        // This is done *after* the construction of the tuple because while
+        // it's valid for a tuple object to be shared, it's not valid for it to
+        // contain a reference to itself (because a reference to it can't exist
+        // during its own construction ... in Python at least; as can be seen
+        // above this *is* theoretically possible at the C level).
+        Decoder__set_shareable(self, ret);
     } else {
         ret = PyList_New(length);
         Decoder__set_shareable(self, ret);
@@ -792,6 +808,12 @@ Decoder_decode_set(DecoderObject *self)
             ret = PySet_New(tmp);
         Py_DECREF(tmp);
     }
+    // This can be done after construction of the set/frozenset because,
+    // unlike lists/dicts a set cannot contain a reference to itself (a set
+    // is unhashable). Nor can a frozenset contain a reference to itself
+    // because it can't refer to itself during its own construction.
+    if (ret)
+        Decoder__set_shareable(self, ret);
     return ret;
 }
 
