@@ -17,7 +17,7 @@ double read_float16(uint16_t i) {
     i = be16toh(i);
 
     sign = i >> 15;
-    exponent = (i >> 10) & 3;
+    exponent = (i >> 10) & 0x1F;
     mantissa = i & 0x3FF;
 
     if (exponent == 0x1F) {
@@ -26,18 +26,14 @@ double read_float16(uint16_t i) {
         else
             return sign ? -NAN : NAN;
     } else {
-        return 0.0;
+        ret = (double) mantissa / 1024.0;
+        if (!exponent) {
+            exponent = -14;
+        } else {
+            ret += 1.0;
+            exponent -= 15;
+        }
+        ret = ldexp(ret, exponent);
+        return sign ? -ret : ret;
     }
-
-    ret = (double) mantissa / 1024.0;
-    if (exponent) {
-        exponent = -14;
-    } else {
-        ret += 1.0;
-        exponent -= 15;
-    }
-    ret = ldexp(ret, exponent);
-    if (sign)
-        ret = -ret;
-    return ret;
 }
