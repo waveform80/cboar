@@ -29,6 +29,8 @@ static int Decoder_set_str_errors(DecoderObject *, PyObject *, void *);
 
 static PyObject * Decoder__decode_bytestring(DecoderObject *, uint8_t);
 static PyObject * Decoder__decode_string(DecoderObject *, uint8_t);
+static PyObject * Decoder_decode_datestr(DecoderObject *);
+static PyObject * Decoder_decode_timestamp(DecoderObject *);
 static PyObject * Decoder_decode_positive_bignum(DecoderObject *);
 static PyObject * Decoder_decode_negative_bignum(DecoderObject *);
 static PyObject * Decoder_decode_float16(DecoderObject *);
@@ -51,6 +53,8 @@ Decoder_dealloc(DecoderObject *self)
     Py_XDECREF(self->object_hook);
     Py_XDECREF(self->shareables);
     Py_XDECREF(self->str_errors);
+    Py_XDECREF(self->timezone);
+    Py_XDECREF(self->utc);
     Py_TYPE(self)->tp_free((PyObject *) self);
 }
 
@@ -60,6 +64,7 @@ static PyObject *
 Decoder_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
 {
     DecoderObject *self;
+    PyObject *datetime, *re;
 
     PyDateTime_IMPORT;
     if (!PyDateTimeAPI)
@@ -67,11 +72,38 @@ Decoder_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
 
     self = (DecoderObject *) type->tp_alloc(type, 0);
     if (self) {
+#if PY_MAJOR_VERSION > 3 || PY_MINOR_VERSION >= 7
+        Py_INCREF(PyDateTime_TimeZone_UTC);
+        self->utc = PyDateTime_TimeZone_UTC;
+        self->timezone = NULL;
+#else
+        // from datetime import timezone
+        datetime = PyImport_ImportModule("datetime");
+        if (!datetime)
+            goto error;
+        self->timezone = PyObject_GetAttr(datetime, _CBOAR_str_timezone);
+        Py_DECREF(datetime);
+        if (!self->timezone)
+            goto error;
+        // self.utc = timezone.utc
+        self->utc = PyObject_GetAttr(self->timezone, _CBOAR_str_utc);
+        if (!self->utc)
+            goto error;
+#endif
+        // import re
+        re = PyImport_ImportModule("re");
+        if (!re)
+            goto error;
+        // self.datestr_re = re.compile("...");
+        self->datestr_re = PyObject_CallMethodObjArgs(
+                re, _CBOAR_str_compile, _CBOAR_str_datestr_re, NULL);
+        Py_DECREF(re);
+        if (!self->datestr_re)
+            goto error;
+        // self.shareables = {}
         self->shareables = PyDict_New();
-        if (!self->shareables) {
-            Py_DECREF(self);
-            return NULL;
-        }
+        if (!self->shareables)
+            goto error;
         Py_INCREF(Py_None);
         self->read = Py_None;
         Py_INCREF(Py_None);
@@ -83,6 +115,9 @@ Decoder_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
         self->shared_index = -1;
     }
     return (PyObject *) self;
+error:
+    Py_DECREF(self);
+    return NULL;
 }
 
 
@@ -744,6 +779,8 @@ Decoder__decode_semantic(DecoderObject *self, uint8_t subtype)
     if (Decoder__decode_length(self, subtype, &tagnum, NULL) == -1)
         return NULL;
     switch (tagnum) {
+        case 0:   return Decoder_decode_datestr(self);
+        case 1:   return Decoder_decode_timestamp(self);
         case 2:   return Decoder_decode_positive_bignum(self);
         case 3:   return Decoder_decode_negative_bignum(self);
         case 28:  return Decoder_decode_shareable(self);
@@ -768,6 +805,121 @@ Decoder__decode_semantic(DecoderObject *self, uint8_t subtype)
             }
             return ret;
     }
+}
+
+
+static PyObject *
+Decoder__parse_datestr(DecoderObject *self, PyObject *str)
+{
+    char *buf, *p;
+    Py_ssize_t size;
+    PyObject *tz, *delta, *ret = NULL;
+    bool offset_sign;
+    uint16_t Y;
+    uint8_t m, d, H, M, S, offset_H, offset_M;
+    uint32_t uS;
+
+    buf = PyUnicode_AsUTF8AndSize(str, &size);
+    if (buf) {
+        Y = strtol(buf, NULL, 10);
+        m = strtol(buf + 5, NULL, 10);
+        d = strtol(buf + 8, NULL, 10);
+        H = strtol(buf + 11, NULL, 10);
+        M = strtol(buf + 14, NULL, 10);
+        S = strtol(buf + 17, &p, 10);
+        if (*p == '.') {
+            uS = strtol(buf + 20, &p, 10);
+            switch (p - (buf + 20)) {
+                case 1: uS *= 100000; break;
+                case 2: uS *= 10000; break;
+                case 3: uS *= 1000; break;
+                case 4: uS *= 100; break;
+                case 5: uS *= 10; break;
+            }
+        } else
+            uS = 0;
+        if (*p == 'Z') {
+            offset_sign = false;
+            Py_INCREF(self->utc);
+            tz = self->utc;
+        } else {
+            offset_sign = *p == '-';
+            offset_H = strtol(p, &p, 10);
+            offset_M = strtol(p + 1, &p, 10);
+            delta = PyDelta_FromDSU(0,
+                    (offset_sign ? -1 : 1) *
+                    (offset_H * 3600 + offset_M * 60), 0);
+            if (delta) {
+#if PY_MAJOR_VERSION > 3 || PY_MINOR_VERSION >= 7
+                tz = PyTimeZone_FromOffset(delta);
+#else
+                tz = PyObject_CallFunctionObjArgs(
+                        self->timezone, delta, NULL);
+#endif
+                Py_DECREF(delta);
+            } else {
+                tz = NULL;
+            }
+        }
+        if (tz) {
+            ret = PyDateTimeAPI->DateTime_FromDateAndTime(
+                    Y, m, d, H, M, S, uS, tz, PyDateTimeAPI->DateTimeType);
+            Py_DECREF(tz);
+        }
+    }
+    return ret;
+}
+
+
+static PyObject *
+Decoder_decode_datestr(DecoderObject *self)
+{
+    // semantic type 0
+    PyObject *match, *str, *ret = NULL;
+
+    // XXX Recursive call
+    str = Decoder_decode(self);
+    if (str) {
+        if (PyUnicode_Check(str)) {
+            match = PyObject_CallMethodObjArgs(
+                    self->datestr_re, _CBOAR_str_match, str, NULL);
+            if (match) {
+                if (match != Py_None)
+                    ret = Decoder__parse_datestr(self, str);
+                else
+                    PyErr_Format(PyExc_ValueError,
+                            "invalid datetime string %R", str);
+                Py_DECREF(match);
+            }
+        } else
+            PyErr_Format(PyExc_ValueError, "invalid datetime value %R", str);
+        Py_DECREF(str);
+    }
+    return ret;
+}
+
+
+static PyObject *
+Decoder_decode_timestamp(DecoderObject *self)
+{
+    // semantic type 1
+    PyObject *num, *tuple, *ret = NULL;
+
+    // XXX Recursive call
+    num = Decoder_decode(self);
+    if (num) {
+        if (PyNumber_Check(num)) {
+            tuple = PyTuple_Pack(2, num, self->utc);
+            if (tuple) {
+                ret = PyDateTime_FromTimestamp(tuple);
+                Py_DECREF(tuple);
+            }
+        } else {
+            PyErr_Format(PyExc_ValueError, "invalid timestamp value %R", num);
+        }
+        Py_DECREF(num);
+    }
+    return ret;
 }
 
 

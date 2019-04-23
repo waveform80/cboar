@@ -42,16 +42,23 @@ PyObject *_CBOAR_str_as_string = NULL;
 PyObject *_CBOAR_str_as_tuple = NULL;
 PyObject *_CBOAR_str_bit_length = NULL;
 PyObject *_CBOAR_str_bytes = NULL;
+PyObject *_CBOAR_str_compile = NULL;
+PyObject *_CBOAR_str_datestr_re = NULL;
 PyObject *_CBOAR_str_denominator = NULL;
+PyObject *_CBOAR_str_fromtimestamp = NULL;
+PyObject *_CBOAR_str_groups = NULL;
 PyObject *_CBOAR_str_is_infinite = NULL;
 PyObject *_CBOAR_str_is_nan = NULL;
 PyObject *_CBOAR_str_isoformat = NULL;
 PyObject *_CBOAR_str_join = NULL;
+PyObject *_CBOAR_str_match = NULL;
 PyObject *_CBOAR_str_numerator = NULL;
 PyObject *_CBOAR_str_OrderedDict = NULL;
 PyObject *_CBOAR_str_pattern = NULL;
 PyObject *_CBOAR_str_read = NULL;
 PyObject *_CBOAR_str_timestamp = NULL;
+PyObject *_CBOAR_str_timezone = NULL;
+PyObject *_CBOAR_str_utc = NULL;
 PyObject *_CBOAR_str_utc_suffix = NULL;
 PyObject *_CBOAR_str_write = NULL;
 
@@ -302,22 +309,35 @@ PyInit__cboar(void)
     INTERN_STRING(as_tuple);
     INTERN_STRING(bit_length);
     INTERN_STRING(bytes);
+    INTERN_STRING(compile);
     INTERN_STRING(denominator);
+    INTERN_STRING(fromtimestamp);
+    INTERN_STRING(groups);
     INTERN_STRING(is_infinite);
     INTERN_STRING(is_nan);
     INTERN_STRING(isoformat);
     INTERN_STRING(join);
+    INTERN_STRING(match);
     INTERN_STRING(numerator);
     INTERN_STRING(OrderedDict);
     INTERN_STRING(pattern);
     INTERN_STRING(read);
     INTERN_STRING(timestamp);
+    INTERN_STRING(timezone);
+    INTERN_STRING(utc);
     INTERN_STRING(write);
 
 #undef INTERN_STRING
 
     if (!_CBOAR_str_utc_suffix &&
             !(_CBOAR_str_utc_suffix = PyUnicode_InternFromString("+00:00")))
+        goto error;
+    if (!_CBOAR_str_datestr_re &&
+            !(_CBOAR_str_datestr_re = PyUnicode_InternFromString(
+                    "^(\\d{4})-(\\d\\d)-(\\d\\d)T"     // Y-m-d
+                    "(\\d\\d):(\\d\\d):(\\d\\d)"       // H:M:S
+                    "(?:\\.(\\d+))?"                   // .uS
+                    "(?:Z|([+-]\\d\\d):(\\d\\d))$")))  // +-TZ
         goto error;
     if (!_CBOAR_empty_bytes &&
             !(_CBOAR_empty_bytes = PyBytes_FromStringAndSize(NULL, 0)))
