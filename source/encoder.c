@@ -41,6 +41,7 @@ static PyObject *
 Encoder_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
 {
     EncoderObject *self;
+    PyObject *collections, *ordered_dict;
 
     PyDateTime_IMPORT;
     if (!PyDateTimeAPI)
@@ -48,12 +49,23 @@ Encoder_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
 
     self = (EncoderObject *) type->tp_alloc(type, 0);
     if (self) {
+        // from collections import OrderedDict
+        collections = PyImport_ImportModule("collections");
+        if (!collections)
+            goto error;
+        ordered_dict = PyObject_GetAttr(collections, _CBOAR_str_OrderedDict);
+        Py_DECREF(collections);
+        if (!ordered_dict)
+            goto error;
+        // self.encoders = OrderedDict()
+        self->encoders = PyObject_CallObject(ordered_dict, NULL);
+        Py_DECREF(ordered_dict);
+        if (!self->encoders)
+            goto error;
+        // self.shared = {}
         self->shared = PyDict_New();
-        if (!self->shared) {
-            Py_DECREF(self);
-            return NULL;
-        }
-        self->encoders = NULL; // TODO set up OrderedDict here
+        if (!self->shared)
+            goto error;
         Py_INCREF(Py_None);
         self->write = Py_None;
         Py_INCREF(Py_None);
@@ -64,6 +76,9 @@ Encoder_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
         self->value_sharing = false;
     }
     return (PyObject *) self;
+error:
+    Py_DECREF(self);
+    return NULL;
 }
 
 
@@ -76,8 +91,7 @@ Encoder_init(EncoderObject *self, PyObject *args, PyObject *kwargs)
         "fp", "datetime_as_timestamp", "timezone", "value_sharing", "default",
         NULL
     };
-    PyObject *fp = NULL, *default_handler = NULL, *timezone = NULL, *tmp,
-             *collections, *ordered_dict;
+    PyObject *fp = NULL, *default_handler = NULL, *timezone = NULL;
 
     if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|pOpO", keywords,
                 &fp, &self->timestamp_format, &timezone, &self->value_sharing,
@@ -89,21 +103,6 @@ Encoder_init(EncoderObject *self, PyObject *args, PyObject *kwargs)
     if (default_handler && Encoder_set_default(self, default_handler, NULL) == -1)
         return -1;
     if (timezone && Encoder_set_timezone(self, timezone, NULL) == -1)
-        return -1;
-
-    collections = PyImport_ImportModule("collections");
-    if (!collections)
-        return -1;
-    ordered_dict = PyObject_GetAttr(collections, _CBOAR_str_OrderedDict);
-    Py_DECREF(collections);
-    if (!ordered_dict)
-        return -1;
-
-    tmp = self->encoders;
-    self->encoders = PyObject_CallObject(ordered_dict, NULL);
-    Py_DECREF(ordered_dict);
-    Py_XDECREF(tmp);
-    if (!self->encoders)
         return -1;
 
     return 0;
