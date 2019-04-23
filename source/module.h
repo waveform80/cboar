@@ -1,4 +1,9 @@
 #include <Python.h>
+#if PY_MAJOR_VERSION < 3
+#error "cboar doesn't support the Python 2.x API"
+#elif PY_MAJOR_VERSION == 3 && PY_MAJOR_VERSION < 3
+#error "cboar requires Python 3.3 or newer"
+#endif
 
 // break_marker singleton
 extern PyObject _break_marker_obj;
