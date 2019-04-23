@@ -42,6 +42,9 @@ static PyObject * Decoder_decode_shareable(DecoderObject *);
 static PyObject * Decoder_decode_shared(DecoderObject *);
 static PyObject * Decoder_decode_set(DecoderObject *);
 static PyObject * Decoder_decode(DecoderObject *);
+static PyObject * Decoder_decode_immutable(DecoderObject *);
+static PyObject * Decoder_decode_unshared(DecoderObject *);
+static PyObject * Decoder_decode_immutable_unshared(DecoderObject *);
 
 
 // Constructors and destructors //////////////////////////////////////////////
@@ -595,7 +598,7 @@ Decoder__decode_indefinite_array(DecoderObject *self)
         Decoder__set_shareable(self, ret);
         while (1) {
             // XXX Recursion
-            item = Decoder_decode(self);
+            item = Decoder_decode_unshared(self);
             if (item == break_marker) {
                 Py_DECREF(item);
                 break;
@@ -640,7 +643,7 @@ Decoder__decode_definite_array(DecoderObject *self, uint64_t length)
         if (ret) {
             for (Py_ssize_t i = 0; i < length; ++i) {
                 // XXX Recursion
-                item = Decoder_decode(self);
+                item = Decoder_decode_unshared(self);
                 if (item)
                     PyTuple_SET_ITEM(ret, i, item);
                 else
@@ -659,7 +662,7 @@ Decoder__decode_definite_array(DecoderObject *self, uint64_t length)
         if (ret) {
             for (Py_ssize_t i = 0; i < length; ++i) {
                 // XXX Recursion
-                item = Decoder_decode(self);
+                item = Decoder_decode_unshared(self);
                 if (item)
                     PyList_SET_ITEM(ret, i, item);
                 else
@@ -695,7 +698,6 @@ Decoder__decode_map(DecoderObject *self, uint8_t subtype)
 {
     // major type 5
     uint64_t length;
-    bool old_immutable;
     bool fail, indefinite = true;
     PyObject *key, *value, *ret = NULL;
 
@@ -705,17 +707,14 @@ Decoder__decode_map(DecoderObject *self, uint8_t subtype)
         if (Decoder__decode_length(self, subtype, &length, &indefinite) == 0) {
             if (indefinite) {
                 while (1) {
-                    old_immutable = self->immutable;
-                    self->immutable = true;
                     // XXX Recursion
-                    key = Decoder_decode(self);
-                    self->immutable = old_immutable;
+                    key = Decoder_decode_immutable_unshared(self);
                     if (key == break_marker) {
                         Py_DECREF(key);
                         break;
                     } else if (key) {
                         // XXX Recursion
-                        value = Decoder_decode(self);
+                        value = Decoder_decode_unshared(self);
                         if (value) {
                             fail = PyDict_SetItem(ret, key, value);
                             Py_DECREF(value);
@@ -729,14 +728,11 @@ Decoder__decode_map(DecoderObject *self, uint8_t subtype)
                 }
             } else {
                 while (length--) {
-                    old_immutable = self->immutable;
-                    self->immutable = true;
                     // XXX Recursion
-                    key = Decoder_decode(self);
-                    self->immutable = old_immutable;
+                    key = Decoder_decode_immutable_unshared(self);
                     if (key) {
                         // XXX Recursion
-                        value = Decoder_decode(self);
+                        value = Decoder_decode_unshared(self);
                         if (value) {
                             fail = PyDict_SetItem(ret, key, value);
                             Py_DECREF(value);
@@ -1001,7 +997,7 @@ Decoder_decode_shared(DecoderObject *self)
     // semantic type 29
     PyObject *index, *ret = NULL;
 
-    index = Decoder_decode(self);
+    index = Decoder_decode_unshared(self);
     if (index) {
         if (PyLong_CheckExact(index)) {
             ret = PyList_GetItem(self->shareables, PyLong_AsSsize_t(index));
@@ -1022,6 +1018,7 @@ Decoder_decode_shared(DecoderObject *self)
             PyErr_Format(PyExc_ValueError,
                     "invalid shared reference %R", index);
         }
+        Py_DECREF(index);
     }
     return ret;
 }
@@ -1031,15 +1028,10 @@ static PyObject *
 Decoder_decode_set(DecoderObject *self)
 {
     // semantic type 258
-    bool old_immutable;
     PyObject *array, *ret = NULL;
 
-    // TODO Warn/error when shared_index != 1
-    old_immutable = self->immutable;
-    self->immutable = true;
     // XXX Recursive call
-    array = Decoder_decode(self);
-    self->immutable = old_immutable;
+    array = Decoder_decode_immutable(self);
     if (array) {
         if (PyList_CheckExact(array) || PyTuple_CheckExact(array)) {
             if (self->immutable)
@@ -1207,6 +1199,52 @@ Decoder_decode(DecoderObject *self)
     }
 
     return NULL;
+}
+
+
+static inline PyObject *
+Decoder_decode_unshared(DecoderObject *self)
+{
+    int32_t old_index;
+    PyObject *ret;
+
+    old_index = self->shared_index;
+    self->shared_index = -1;
+    ret = Decoder_decode(self);
+    self->shared_index = old_index;
+    return ret;
+}
+
+
+static inline PyObject *
+Decoder_decode_immutable(DecoderObject *self)
+{
+    bool old_immutable;
+    PyObject *ret;
+
+    old_immutable = self->immutable;
+    self->immutable = true;
+    ret = Decoder_decode(self);
+    self->immutable = old_immutable;
+    return ret;
+}
+
+
+static inline PyObject *
+Decoder_decode_immutable_unshared(DecoderObject *self)
+{
+    bool old_immutable;
+    int32_t old_index;
+    PyObject *ret;
+
+    old_immutable = self->immutable;
+    old_index = self->shared_index;
+    self->immutable = true;
+    self->shared_index = -1;
+    ret = Decoder_decode(self);
+    self->immutable = old_immutable;
+    self->shared_index = old_index;
+    return ret;
 }
 
 

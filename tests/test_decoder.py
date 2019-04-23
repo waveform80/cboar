@@ -238,11 +238,11 @@ def test_bad_shared_reference():
 
 
 def test_uninitialized_shared_reference():
-    fp = BytesIO(unhexlify('d81d00'))
-    decoder = CBORDecoder(fp)
-    decoder._shareables.append(None)
     with pytest.raises(ValueError) as exc:
-        decoder.decode()
+        # encode a set of a recursive array; the set forces the embedded array
+        # to be decoded as a recursive tuple which is impossible, and leads to
+        # the expected error
+        loads(unhexlify('d90102d81c81d81d00'))
     assert str(exc.value).endswith('shared value 0 has not been initialized')
 
 
