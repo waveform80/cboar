@@ -173,8 +173,9 @@ Encoder_set_default(EncoderObject *self, PyObject *value, void *closure)
         return -1;
     }
     if (value != Py_None && !PyCallable_Check(value)) {
-        PyErr_SetString(PyExc_ValueError,
-                        "default_handler must be callable or None");
+        PyErr_Format(PyExc_ValueError,
+                        "invalid default_handler value %R (must be callable "
+                        "or None)", value);
         return -1;
     }
 
@@ -207,8 +208,9 @@ Encoder_set_timezone(EncoderObject *self, PyObject *value, void *closure)
         return -1;
     }
     if (!PyTZInfo_Check(value) && value != Py_None) {
-        PyErr_SetString(PyExc_ValueError,
-                        "timezone must be tzinfo instance or None");
+        PyErr_Format(PyExc_ValueError,
+                        "invalid timezone value %R (must be tzinfo instance "
+                        "or None)", value);
         return -1;
     }
     tmp = self->timezone;
@@ -237,37 +239,30 @@ Encoder__load_type(PyObject *type_tuple)
 {
     PyObject *mod_name, *module, *type_name, *type, *import_list;
 
-    if (PyTuple_GET_SIZE(type_tuple) != 2) {
-        PyErr_SetString(PyExc_ValueError,
-                        "deferred load encoder types must be a 2-tuple");
-        return NULL;
+    if (PyTuple_GET_SIZE(type_tuple) == 2) {
+        mod_name = PyTuple_GET_ITEM(type_tuple, 0);
+        type_name = PyTuple_GET_ITEM(type_tuple, 1);
+        if (PyUnicode_Check(mod_name) && PyUnicode_Check(type_name)) {
+            import_list = PyList_New(1);
+            if (!import_list)
+                return NULL;
+            Py_INCREF(type_name);
+            PyList_SET_ITEM(import_list, 0, type_name);
+            module = PyImport_ImportModuleLevelObject(
+                    mod_name, NULL, NULL, import_list, 0);
+            Py_DECREF(import_list);
+            if (!module)
+                return NULL;
+            type = PyObject_GetAttr(module, type_name);
+            Py_DECREF(module);
+            return type;
+        }
     }
-    mod_name = PyTuple_GET_ITEM(type_tuple, 0);
-    if (!PyUnicode_Check(mod_name)) {
-        PyErr_SetString(PyExc_ValueError,
-                        "deferred load element 0 is not a string");
-        return NULL;
-    }
-    type_name = PyTuple_GET_ITEM(type_tuple, 1);
-    if (!PyUnicode_Check(type_name)) {
-        PyErr_SetString(PyExc_ValueError,
-                        "deferred load element 1 is not a string");
-        return NULL;
-    }
-
-    import_list = PyList_New(1);
-    if (!import_list)
-        return NULL;
-    Py_INCREF(type_name);
-    PyList_SET_ITEM(import_list, 0, type_name);
-    module = PyImport_ImportModuleLevelObject(
-            mod_name, NULL, NULL, import_list, 0);
-    Py_DECREF(import_list);
-    if (!module)
-        return NULL;
-    type = PyObject_GetAttr(module, type_name);
-    Py_DECREF(module);
-    return type;
+    PyErr_Format(PyExc_ValueError,
+            "invalid deferred encoder type %R (must be a 2-tuple of module "
+            "name and type name, e.g. ('collections', 'defaultdict'))",
+            type_tuple);
+    return NULL;
 }
 
 
@@ -597,7 +592,7 @@ Encoder_encode_bytearray(EncoderObject *self, PyObject *value)
     Py_ssize_t length;
 
     if (!PyByteArray_Check(value)) {
-        PyErr_SetString(PyExc_ValueError, "expected bytearray");
+        PyErr_Format(PyExc_ValueError, "invalid bytearray value %R", value);
         return NULL;
     }
     length = PyByteArray_GET_SIZE(value);
@@ -830,10 +825,10 @@ Encoder_encode_datetime(EncoderObject *self, PyObject *value)
                         self->timezone,
                         PyDateTimeAPI->DateTimeType);
             } else {
-                PyErr_SetString(PyExc_ValueError,
-                                "naive datetime encountered and no default "
-                                "timezone has been set");
-               value = NULL;
+                PyErr_Format(PyExc_ValueError,
+                                "naive datetime %R encountered and no default "
+                                "timezone has been set", value);
+                value = NULL;
             }
         } else {
             // convert value from borrowed to a new reference to simplify our

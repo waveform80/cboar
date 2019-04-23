@@ -160,10 +160,6 @@ def test_streaming(payload, expected):
 
 
 @pytest.mark.parametrize('payload, expected', [
-    ('e0', 0),
-    ('e2', 2),
-    ('f3', 19),
-    ('f820', 32),
     ('e0', CBORSimpleValue(0)),
     ('e2', CBORSimpleValue(2)),
     ('f3', CBORSimpleValue(19)),
@@ -197,7 +193,7 @@ def test_datetime(payload, expected):
 def test_bad_datetime():
     with pytest.raises(ValueError) as exc:
         loads(unhexlify('c06b303030302d3132332d3031'))
-    assert str(exc.value).endswith('invalid datetime string: 0000-123-01')
+    assert str(exc.value).endswith("invalid datetime string '0000-123-01'")
 
 
 def test_fraction():

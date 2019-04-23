@@ -208,8 +208,9 @@ Decoder_set_tag_hook(DecoderObject *self, PyObject *value, void *closure)
         return -1;
     }
     if (value != Py_None && !PyCallable_Check(value)) {
-        PyErr_SetString(PyExc_ValueError,
-                        "tag_hook must be callable or None");
+        PyErr_Format(PyExc_ValueError,
+                        "invalid tag_hook value %R (must be callable or "
+                        "None", value);
         return -1;
     }
 
@@ -242,8 +243,9 @@ Decoder_set_object_hook(DecoderObject *self, PyObject *value, void *closure)
         return -1;
     }
     if (value != Py_None && !PyCallable_Check(value)) {
-        PyErr_SetString(PyExc_ValueError,
-                        "object_hook must be callable or None");
+        PyErr_Format(PyExc_ValueError,
+                        "invalid object_hook value %R (must be callable or "
+                        "None)", value);
         return -1;
     }
 
@@ -276,30 +278,24 @@ Decoder_set_str_errors(DecoderObject *self, PyObject *value, void *closure)
                         "cannot delete str_errors attribute");
         return -1;
     }
-    if (!PyUnicode_Check(value)) {
-        PyErr_SetString(PyExc_ValueError, "str_errors must be a str value");
-        return -1;
+    if (PyUnicode_Check(value)) {
+        bytes = PyUnicode_AsASCIIString(value);
+        if (bytes) {
+            if (!strcmp(PyBytes_AS_STRING(bytes), "strict") ||
+                    !strcmp(PyBytes_AS_STRING(bytes), "error") ||
+                    !strcmp(PyBytes_AS_STRING(bytes), "replace")) {
+                tmp = self->str_errors;
+                self->str_errors = bytes;
+                Py_DECREF(tmp);
+                return 0;
+            }
+            Py_DECREF(bytes);
+        }
     }
-    bytes = PyUnicode_AsASCIIString(value);
-    if (!bytes) {
-        PyErr_SetString(PyExc_ValueError,
-                "str_errors must be one of the strings: 'strict', 'error', "
-                "or 'replace'");
-        return -1;
-    }
-    if (strcmp(PyBytes_AS_STRING(bytes), "strict") &&
-            strcmp(PyBytes_AS_STRING(bytes), "error") &&
-            strcmp(PyBytes_AS_STRING(bytes), "replace")) {
-        PyErr_SetString(PyExc_ValueError,
-                "str_errors must be one of the strings: 'strict', 'error', "
-                "or 'replace'");
-        return -1;
-    }
-
-    tmp = self->str_errors;
-    self->str_errors = bytes;
-    Py_DECREF(tmp);
-    return 0;
+    PyErr_Format(PyExc_ValueError,
+            "invalid str_errors value %R (must be one of 'strict', "
+            "'error', or 'replace'", value);
+    return -1;
 }
 
 
@@ -935,11 +931,11 @@ Decoder_decode_positive_bignum(DecoderObject *self)
     if (bytes) {
         if (PyBytes_CheckExact(bytes)) {
             ret = PyObject_CallMethod(
-                &PyLong_Type, "from_bytes", "Os#", bytes, "big", 3);
+                (PyObject*) &PyLong_Type, "from_bytes", "Os#", bytes, "big", 3);
             if (ret)
                 Decoder__set_shareable(self, ret);
         } else
-            PyErr_SetString(PyExc_ValueError, "expected byte string for bignum");
+            PyErr_Format(PyExc_ValueError, "invalid bignum value %R", bytes);
         Py_DECREF(bytes);
     }
     return ret;
@@ -994,27 +990,59 @@ Decoder_decode_shareable(DecoderObject *self)
 
 
 static PyObject *
+Decoder_decode_shared(DecoderObject *self)
+{
+    // semantic type 29
+    PyObject *index, *ret = NULL;
+
+    index = Decoder_decode(self);
+    if (index) {
+        if (PyLong_CheckExact(index)) {
+            ret = PyDict_GetItem(self->shareables, index);
+            if (ret) {
+                if (ret == Py_None) {
+                    PyErr_Format(PyExc_ValueError,
+                            "shared value %R has not been initialized", index);
+                    ret = NULL;
+                } else {
+                    // convert borrowed reference to new reference
+                    Py_INCREF(ret);
+                }
+            } else {
+                PyErr_Format(PyExc_ValueError,
+                        "shared reference %R not found", index);
+            }
+        } else {
+            PyErr_Format(PyExc_ValueError,
+                    "invalid shared reference %R", index);
+        }
+    }
+    return ret;
+}
+
+
+static PyObject *
 Decoder_decode_set(DecoderObject *self)
 {
     // semantic type 258
     bool old_immutable;
-    PyObject *tmp, *ret = NULL;
+    PyObject *array, *ret = NULL;
 
     // TODO Warn/error when shared_index != 1
     old_immutable = self->immutable;
     self->immutable = true;
     // XXX Recursive call
-    tmp = Decoder_decode(self);
+    array = Decoder_decode(self);
     self->immutable = old_immutable;
-    if (tmp) {
-        if (PyList_CheckExact(tmp) || PyTuple_CheckExact(tmp)) {
+    if (array) {
+        if (PyList_CheckExact(array) || PyTuple_CheckExact(array)) {
             if (self->immutable)
-                ret = PyFrozenSet_New(tmp);
+                ret = PyFrozenSet_New(array);
             else
-                ret = PySet_New(tmp);
+                ret = PySet_New(array);
         } else
-            PyErr_SetString(PyExc_ValueError, "expected list or tuple for set");
-        Py_DECREF(tmp);
+            PyErr_Format(PyExc_ValueError, "invalid set array %R", array);
+        Py_DECREF(array);
     }
     // This can be done after construction of the set/frozenset because,
     // unlike lists/dicts a set cannot contain a reference to itself (a set
