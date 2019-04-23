@@ -33,6 +33,7 @@ static PyObject * Decoder_decode_datestr(DecoderObject *);
 static PyObject * Decoder_decode_timestamp(DecoderObject *);
 static PyObject * Decoder_decode_positive_bignum(DecoderObject *);
 static PyObject * Decoder_decode_negative_bignum(DecoderObject *);
+static PyObject * Decoder_decode_simplevalue(DecoderObject *);
 static PyObject * Decoder_decode_float16(DecoderObject *);
 static PyObject * Decoder_decode_float32(DecoderObject *);
 static PyObject * Decoder_decode_float64(DecoderObject *);
@@ -1031,18 +1032,66 @@ static PyObject *
 Decoder__decode_special(DecoderObject *self, uint8_t subtype)
 {
     // major type 7
-    // TODO
-    switch (subtype) {
-        case 20: Py_RETURN_FALSE;
-        case 21: Py_RETURN_TRUE;
-        case 22: Py_RETURN_NONE;
-        case 23: CBOAR_RETURN_UNDEFINED;
-        case 25: return Decoder_decode_float16(self);
-        case 26: return Decoder_decode_float32(self);
-        case 27: return Decoder_decode_float64(self);
-        case 31: CBOAR_RETURN_BREAK;
-        default: return NULL;
+    PyObject *tag, *ret = NULL;
+
+    if ((subtype) < 20) {
+        tag = PyStructSequence_New(&CBORSimpleValueType);
+        if (tag) {
+            PyStructSequence_SET_ITEM(tag, 0, PyLong_FromLong(subtype));
+            if (PyStructSequence_GET_ITEM(tag, 0)) {
+                Py_INCREF(tag);
+                ret = tag;
+            }
+            Py_DECREF(tag);
+        }
+    } else {
+        switch (subtype) {
+            case 20:
+                Py_RETURN_FALSE;
+            case 21:
+                Py_RETURN_TRUE;
+            case 22:
+                Py_RETURN_NONE;
+            case 23:
+                CBOAR_RETURN_UNDEFINED;
+            case 24:
+                ret = Decoder_decode_simplevalue(self);
+                break;
+            case 25:
+                ret = Decoder_decode_float16(self);
+                break;
+            case 26:
+                ret = Decoder_decode_float32(self);
+                break;
+            case 27:
+                ret = Decoder_decode_float64(self);
+                break;
+            case 31:
+                CBOAR_RETURN_BREAK;
+        }
     }
+    return ret;
+}
+
+
+static PyObject *
+Decoder_decode_simplevalue(DecoderObject *self)
+{
+    PyObject *tag, *ret = NULL;
+    uint8_t buf;
+
+    if (Decoder__read(self, (char*)&buf, sizeof(uint8_t)) == 0) {
+        tag = PyStructSequence_New(&CBORSimpleValueType);
+        if (tag) {
+            PyStructSequence_SET_ITEM(tag, 0, PyLong_FromLong(buf));
+            if (PyStructSequence_GET_ITEM(tag, 0)) {
+                Py_INCREF(tag);
+                ret = tag;
+            }
+            Py_DECREF(tag);
+        }
+    }
+    return ret;
 }
 
 
