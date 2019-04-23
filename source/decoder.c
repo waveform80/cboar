@@ -39,6 +39,7 @@ static PyObject * Decoder_decode_float32(DecoderObject *);
 static PyObject * Decoder_decode_float64(DecoderObject *);
 
 static PyObject * Decoder_decode_shareable(DecoderObject *);
+static PyObject * Decoder_decode_shared(DecoderObject *);
 static PyObject * Decoder_decode_set(DecoderObject *);
 static PyObject * Decoder_decode(DecoderObject *);
 
@@ -101,8 +102,8 @@ Decoder_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
         Py_DECREF(re);
         if (!self->datestr_re)
             goto error;
-        // self.shareables = {}
-        self->shareables = PyDict_New();
+        // self.shareables = []
+        self->shareables = PyList_New(0);
         if (!self->shareables)
             goto error;
         Py_INCREF(Py_None);
@@ -322,20 +323,14 @@ Decoder__read(DecoderObject *self, char *buf, const uint64_t size)
 }
 
 
-static PyObject *
-Decoder__set_shareable(DecoderObject *self, PyObject *container)
+static void
+Decoder__set_shareable(DecoderObject *self, PyObject *value)
 {
-    PyObject *key;
-
-    if (self->shared_index == -1)
-        Py_RETURN_NONE;
-    // TODO use weakrefs? or explicitly empty dict?
-    key = PyLong_FromLong(self->shared_index);
-    if (key) {
-        PyDict_SetItem(self->shareables, key, container);
-        Py_DECREF(key);
+    if (self->shared_index != -1) {
+        Py_INCREF(value);  // PyList_SetItem "steals" reference
+        // TODO use weakrefs? or explicitly empty list?
+        PyList_SetItem(self->shareables, self->shared_index, value);
     }
-    Py_RETURN_NONE;
 }
 
 
@@ -773,35 +768,51 @@ Decoder__decode_semantic(DecoderObject *self, uint8_t subtype)
     uint64_t tagnum;
     PyObject *tag, *ret = NULL;
 
-    if (Decoder__decode_length(self, subtype, &tagnum, NULL) == -1)
-        return NULL;
-    switch (tagnum) {
-        case 0:   return Decoder_decode_datestr(self);
-        case 1:   return Decoder_decode_timestamp(self);
-        case 2:   return Decoder_decode_positive_bignum(self);
-        case 3:   return Decoder_decode_negative_bignum(self);
-        case 28:  return Decoder_decode_shareable(self);
-        case 258: return Decoder_decode_set(self);
-        // TODO
-        default:
-            tag = PyStructSequence_New(&CBORTagType);
-            if (tag) {
-                PyStructSequence_SET_ITEM(tag, 0, PyLong_FromUnsignedLongLong(tagnum));
-                if (PyStructSequence_GET_ITEM(tag, 0)) {
-                    PyStructSequence_SET_ITEM(tag, 1, Decoder_decode(self));
-                    if (PyStructSequence_GET_ITEM(tag, 1)) {
-                        if (self->tag_hook == Py_None) {
-                            Py_INCREF(tag);
-                            ret = tag;
-                        } else
-                            ret = PyObject_CallFunctionObjArgs(
-                                    self->tag_hook, self, tag, NULL);
+    if (Decoder__decode_length(self, subtype, &tagnum, NULL) == 0) {
+        switch (tagnum) {
+            case 0:
+                ret = Decoder_decode_datestr(self);
+                break;
+            case 1:
+                ret = Decoder_decode_timestamp(self);
+                break;
+            case 2:
+                ret = Decoder_decode_positive_bignum(self);
+                break;
+            case 3:
+                ret = Decoder_decode_negative_bignum(self);
+                break;
+            case 28:
+                ret = Decoder_decode_shareable(self);
+                break;
+            case 29:
+                ret = Decoder_decode_shared(self);
+                break;
+            case 258:
+                ret = Decoder_decode_set(self);
+                break;
+            default:
+                tag = PyStructSequence_New(&CBORTagType);
+                if (tag) {
+                    PyStructSequence_SET_ITEM(tag, 0,
+                            PyLong_FromUnsignedLongLong(tagnum));
+                    if (PyStructSequence_GET_ITEM(tag, 0)) {
+                        // XXX Recursive call
+                        PyStructSequence_SET_ITEM(tag, 1, Decoder_decode(self));
+                        if (PyStructSequence_GET_ITEM(tag, 1)) {
+                            if (self->tag_hook == Py_None) {
+                                Py_INCREF(tag);
+                                ret = tag;
+                            } else
+                                ret = PyObject_CallFunctionObjArgs(
+                                        self->tag_hook, self, tag, NULL);
+                        }
                     }
+                    Py_DECREF(tag);
                 }
-                Py_DECREF(tag);
-            }
-            return ret;
+        }
     }
+    return ret;
 }
 
 
@@ -972,18 +983,13 @@ Decoder_decode_shareable(DecoderObject *self)
 {
     // semantic type 28
     int32_t old_index;
-    PyObject *key, *ret = NULL;
+    PyObject *ret = NULL;
 
     old_index = self->shared_index;
-    self->shared_index = PyDict_Size(self->shareables);
-    key = PyLong_FromLong(self->shared_index);
-    if (key) {
-        if (PyDict_SetItem(self->shareables, key, Py_None) == 0) {
-            // XXX Recursive call
-            ret = Decoder_decode(self);
-        }
-        Py_DECREF(key);
-    }
+    self->shared_index = PyList_GET_SIZE(self->shareables);
+    if (PyList_Append(self->shareables, Py_None) == 0)
+        // XXX Recursive call
+        ret = Decoder_decode(self);
     self->shared_index = old_index;
     return ret;
 }
@@ -998,7 +1004,7 @@ Decoder_decode_shared(DecoderObject *self)
     index = Decoder_decode(self);
     if (index) {
         if (PyLong_CheckExact(index)) {
-            ret = PyDict_GetItem(self->shareables, index);
+            ret = PyList_GetItem(self->shareables, PyLong_AsSsize_t(index));
             if (ret) {
                 if (ret == Py_None) {
                     PyErr_Format(PyExc_ValueError,
