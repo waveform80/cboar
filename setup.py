@@ -7,6 +7,7 @@ _cboar = Extension(
         'source/module.c',
         'source/encoder.c',
         'source/decoder.c',
+        'source/tags.c',
         'source/halffloat.c',
     ]
 )

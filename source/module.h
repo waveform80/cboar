@@ -15,9 +15,6 @@ extern PyObject _undefined_obj;
 #define undefined (&_undefined_obj)
 #define CBOAR_RETURN_UNDEFINED return Py_INCREF(undefined), undefined
 
-// CBORTag namedtuple type
-extern PyTypeObject CBORTagType;
-
 // CBORSimpleValue namedtuple type
 extern PyTypeObject CBORSimpleValueType;
 

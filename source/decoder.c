@@ -10,6 +10,7 @@
 #include <datetime.h>
 #include "module.h"
 #include "halffloat.h"
+#include "tags.h"
 #include "decoder.h"
 
 
@@ -319,6 +320,10 @@ Decoder__read(DecoderObject *self, char *buf, const uint64_t size)
             data = PyBytes_AS_STRING(obj);
             memcpy(buf, data, size);
             ret = 0;
+        } else {
+            PyErr_Format(PyExc_ValueError,
+                    "premature end of stream (expected to read %d bytes, "
+                    "got %d instead)", size, PyBytes_GET_SIZE(obj));
         }
         Py_DECREF(obj);
     }
@@ -762,7 +767,7 @@ Decoder__decode_semantic(DecoderObject *self, uint8_t subtype)
 {
     // major type 6
     uint64_t tagnum;
-    PyObject *tag, *ret = NULL;
+    PyObject *tag, *value, *ret = NULL;
 
     if (Decoder__decode_length(self, subtype, &tagnum, NULL) == 0) {
         switch (tagnum) {
@@ -788,24 +793,26 @@ Decoder__decode_semantic(DecoderObject *self, uint8_t subtype)
                 ret = Decoder_decode_set(self);
                 break;
             default:
-                tag = PyStructSequence_New(&CBORTagType);
+                tag = Tag_New(tagnum);
                 if (tag) {
-                    PyStructSequence_SET_ITEM(tag, 0,
-                            PyLong_FromUnsignedLongLong(tagnum));
-                    if (PyStructSequence_GET_ITEM(tag, 0)) {
-                        // XXX Recursive call
-                        PyStructSequence_SET_ITEM(tag, 1, Decoder_decode(self));
-                        if (PyStructSequence_GET_ITEM(tag, 1)) {
+                    Decoder__set_shareable(self, tag);
+                    // XXX Recursive call
+                    value = Decoder_decode_unshared(self);
+                    if (value) {
+                        if (Tag_SetValue(tag, value) == 0) {
                             if (self->tag_hook == Py_None) {
                                 Py_INCREF(tag);
                                 ret = tag;
-                            } else
+                            } else {
                                 ret = PyObject_CallFunctionObjArgs(
                                         self->tag_hook, self, tag, NULL);
+                            }
                         }
+                        Py_DECREF(value);
                     }
                     Py_DECREF(tag);
                 }
+                break;
         }
     }
     return ret;
@@ -899,6 +906,8 @@ Decoder_decode_datestr(DecoderObject *self)
             PyErr_Format(PyExc_ValueError, "invalid datetime value %R", str);
         Py_DECREF(str);
     }
+    if (ret)
+        Decoder__set_shareable(self, ret);
     return ret;
 }
 
@@ -923,6 +932,8 @@ Decoder_decode_timestamp(DecoderObject *self)
         }
         Py_DECREF(num);
     }
+    if (ret)
+        Decoder__set_shareable(self, ret);
     return ret;
 }
 
@@ -936,15 +947,15 @@ Decoder_decode_positive_bignum(DecoderObject *self)
     // XXX Recursive call
     bytes = Decoder_decode(self);
     if (bytes) {
-        if (PyBytes_CheckExact(bytes)) {
+        if (PyBytes_CheckExact(bytes))
             ret = PyObject_CallMethod(
                 (PyObject*) &PyLong_Type, "from_bytes", "Os#", bytes, "big", 3);
-            if (ret)
-                Decoder__set_shareable(self, ret);
-        } else
+        else
             PyErr_Format(PyExc_ValueError, "invalid bignum value %R", bytes);
         Py_DECREF(bytes);
     }
+    if (ret)
+        Decoder__set_shareable(self, ret);
     return ret;
 }
 
@@ -962,14 +973,14 @@ Decoder_decode_negative_bignum(DecoderObject *self)
             neg = PyNumber_Negative(value);
             if (neg) {
                 ret = PyNumber_Subtract(neg, one);
-                if (ret)
-                    Decoder__set_shareable(self, ret);
                 Py_DECREF(neg);
             }
             Py_DECREF(one);
         }
         Py_DECREF(value);
     }
+    if (ret)
+        Decoder__set_shareable(self, ret);
     return ret;
 }
 
@@ -1069,6 +1080,7 @@ Decoder__decode_special(DecoderObject *self, uint8_t subtype)
                 ret = tag;
             }
             Py_DECREF(tag);
+            // XXX Set shareable?
         }
     } else {
         switch (subtype) {
@@ -1117,6 +1129,7 @@ Decoder_decode_simplevalue(DecoderObject *self)
             Py_DECREF(tag);
         }
     }
+    // XXX Set shareable?
     return ret;
 }
 
@@ -1130,11 +1143,10 @@ Decoder_decode_float16(DecoderObject *self)
         char buf[sizeof(uint16_t)];
     } u;
 
-    if (Decoder__read(self, u.buf, sizeof(uint16_t)) == 0) {
+    if (Decoder__read(self, u.buf, sizeof(uint16_t)) == 0)
         ret = PyFloat_FromDouble(read_float16(u.i));
-        if (ret)
-            Decoder__set_shareable(self, ret);
-    }
+    if (ret)
+        Decoder__set_shareable(self, ret);
     return ret;
 }
 
@@ -1152,9 +1164,9 @@ Decoder_decode_float32(DecoderObject *self)
     if (Decoder__read(self, u.buf, sizeof(float)) == 0) {
         u.i = be32toh(u.i);
         ret = PyFloat_FromDouble((double)u.f);
-        if (ret)
-            Decoder__set_shareable(self, ret);
     }
+    if (ret)
+        Decoder__set_shareable(self, ret);
     return ret;
 }
 
@@ -1172,9 +1184,9 @@ Decoder_decode_float64(DecoderObject *self)
     if (Decoder__read(self, u.buf, sizeof(double)) == 0) {
         u.i = be64toh(u.i);
         ret = PyFloat_FromDouble(u.f);
-        if (ret)
-            Decoder__set_shareable(self, ret);
     }
+    if (ret)
+        Decoder__set_shareable(self, ret);
     return ret;
 }
 
@@ -1184,21 +1196,37 @@ static PyObject *
 Decoder_decode(DecoderObject *self)
 {
     LeadByte lead;
+    PyObject *ret = NULL;
 
-    if (Decoder__read(self, &lead.byte, 1) == -1)
-        return NULL;
-    switch (lead.major) {
-        case 0: return Decoder__decode_uint(self, lead.subtype);
-        case 1: return Decoder__decode_negint(self, lead.subtype);
-        case 2: return Decoder__decode_bytestring(self, lead.subtype);
-        case 3: return Decoder__decode_string(self, lead.subtype);
-        case 4: return Decoder__decode_array(self, lead.subtype);
-        case 5: return Decoder__decode_map(self, lead.subtype);
-        case 6: return Decoder__decode_semantic(self, lead.subtype);
-        case 7: return Decoder__decode_special(self, lead.subtype);
+    if (Decoder__read(self, &lead.byte, 1) == 0) {
+        switch (lead.major) {
+            case 0:
+                ret = Decoder__decode_uint(self, lead.subtype);
+                break;
+            case 1:
+                ret = Decoder__decode_negint(self, lead.subtype);
+                break;
+            case 2:
+                ret = Decoder__decode_bytestring(self, lead.subtype);
+                break;
+            case 3:
+                ret = Decoder__decode_string(self, lead.subtype);
+                break;
+            case 4:
+                ret = Decoder__decode_array(self, lead.subtype);
+                break;
+            case 5:
+                ret = Decoder__decode_map(self, lead.subtype);
+                break;
+            case 6:
+                ret = Decoder__decode_semantic(self, lead.subtype);
+                break;
+            case 7:
+                ret = Decoder__decode_special(self, lead.subtype);
+                break;
+        }
     }
-
-    return NULL;
+    return ret;
 }
 
 

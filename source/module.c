@@ -1,6 +1,7 @@
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
 #include "module.h"
+#include "tags.h"
 #include "encoder.h"
 #include "decoder.h"
 
@@ -165,50 +166,6 @@ PyObject _undefined_obj = {
 };
 
 
-// CBORTag namedtuple ////////////////////////////////////////////////////////
-
-PyTypeObject CBORTagType;
-
-static PyStructSequence_Field CBORTagFields[] = {
-    {.name = "tag"},
-    {.name = "value"},
-    {NULL},
-};
-
-static PyStructSequence_Desc CBORTagDesc = {
-    .name = "CBORTag",
-    .doc = NULL,  // TODO
-    .fields = CBORTagFields,
-    .n_in_sequence = 2,
-};
-
-static PyObject *
-CBORTag_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
-{
-    static char *keywords[] = {"tag", "value", NULL};
-    PyObject *value = NULL, *tag, *ret;
-    uint64_t tagval;
-
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|KO", keywords, &tagval, &value))
-        return NULL;
-
-    ret = PyStructSequence_New(type);
-    if (!ret)
-        return NULL;
-    tag = PyLong_FromUnsignedLongLong(tagval);
-    if (!tag)
-        return NULL;
-    PyStructSequence_SET_ITEM(ret, 0, tag);
-    if (!value) {
-        Py_INCREF(Py_None);
-        value = Py_None;
-    }
-    Py_INCREF(value);
-    PyStructSequence_SET_ITEM(ret, 1, value);
-    return ret;
-}
-
-
 // CBORSimpleValue namedtuple ////////////////////////////////////////////////
 
 PyTypeObject CBORSimpleValueType;
@@ -259,6 +216,8 @@ PyMODINIT_FUNC
 PyInit__cboar(void)
 {
     PyObject *module;
+    if (PyType_Ready(&TagType) < 0)
+        return NULL;
     if (PyType_Ready(&EncoderType) < 0)
         return NULL;
     if (PyType_Ready(&DecoderType) < 0)
@@ -269,19 +228,16 @@ PyInit__cboar(void)
         return NULL;
 
     // Use PyStructSequence_InitType2 to workaround #34784 (dup of #28709)
-    if (PyStructSequence_InitType2(&CBORTagType, &CBORTagDesc) == -1)
-        goto error;
-    Py_INCREF((PyObject *) &CBORTagType);
-    CBORTagType.tp_new = CBORTag_new;
-    if (PyModule_AddObject(module, "CBORTag", (PyObject *) &CBORTagType) == -1)
-        goto error;
-
     if (PyStructSequence_InitType2(&CBORSimpleValueType, &CBORSimpleValueDesc) == -1)
         goto error;
     Py_INCREF((PyObject *) &CBORSimpleValueType);
     CBORSimpleValueType.tp_new = CBORSimpleValue_new;
     if (PyModule_AddObject(
             module, "CBORSimpleValue", (PyObject *) &CBORSimpleValueType) == -1)
+        goto error;
+
+    Py_INCREF(&TagType);
+    if (PyModule_AddObject(module, "Tag", (PyObject *) &TagType) == -1)
         goto error;
 
     Py_INCREF(&EncoderType);

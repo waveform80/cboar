@@ -277,7 +277,7 @@ def test_premature_end_of_stream():
 
 
 def test_tag_hook():
-    def reverse(decoder, tag, fp, shareable_index=None):
+    def reverse(decoder, tag):
         return tag.value[::-1]
 
     decoded = loads(unhexlify('d917706548656c6c6f'), tag_hook=reverse)
@@ -289,13 +289,13 @@ def test_tag_hook_cyclic():
         def __init__(self, value):
             self.value = value
 
-    def unmarshal_dummy(decoder, tag, shareable_index=None):
+    def unmarshal_dummy(decoder, tag):
         instance = DummyType.__new__(DummyType)
-        decoder.set_shareable(shareable_index, instance)
+        #decoder.set_shareable(shareable_index, instance)
         instance.value = decoder.decode_from_bytes(tag.value)
         return instance
 
-    decoded = loads(unhexlify('D81CD90BB849D81CD90BB843D81D00'), tag_hook=unmarshal_dummy)
+    decoded = loads(unhexlify('d81cd90bb849d81cd90bb843d81d00'), tag_hook=unmarshal_dummy)
     assert isinstance(decoded, DummyType)
     assert decoded.value.value is decoded
 
