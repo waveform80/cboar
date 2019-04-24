@@ -273,7 +273,10 @@ def test_premature_end_of_stream():
     """
     with pytest.raises(ValueError) as exc:
         loads(unhexlify('437879'))
-    exc.match(r'premature end of stream \(expected to read 3 bytes, got 2 instead\)')
+    exc.match('premature end of stream \(expected to read 3 bytes, got 2 instead\)')
+    with pytest.raises(ValueError) as exc:
+        loads(b'')
+    exc.match('premature end of stream \(expected to read 1 bytes, got 0 instead\)')
 
 
 def test_tag_hook():
@@ -311,15 +314,9 @@ def test_object_hook():
     assert decoded.state == {'a': 3, 'b': 5}
 
 
-def test_error_major_type():
-    with pytest.raises(ValueError) as exc:
-        loads(b'')
-    assert str(exc.value).startswith('error reading major type at index 0: ')
-
-
 def test_load_from_file(tmpdir):
     path = tmpdir.join('testdata.cbor')
-    path.write_binary(b'\x82\x01\x0a')
+    path.write_binary(unhexlify('82010a'))
     with path.open('rb') as fp:
         obj = load(fp)
 
@@ -329,7 +326,7 @@ def test_load_from_file(tmpdir):
 @pytest.mark.skipif(sys.version_info < (3, 0), reason="No exception with python 2.7")
 def test_nested_exception():
     with pytest.raises((ValueError, TypeError)) as exc:
-        loads(unhexlify('A1D9177082010201'))
+        loads(unhexlify('a1d9177082010201'))
     exc.match(r"error decoding value at index 8: "
               r"(unhashable type: 'CBORTag'|'CBORTag' objects are unhashable)")
 
@@ -347,7 +344,7 @@ def test_set():
     #    {FrozenDict({FrozenDict({1: 1}): FrozenDict({"nested": True})}): {"nested": False}}),
     ('a182010203', {(1, 2): 3}),
     ('a1d901028301020304', {frozenset({1, 2, 3}): 4}),
-    ('A17f657374726561646d696e67ff01', {"streaming": 1}),
+    ('a17f657374726561646d696e67ff01', {"streaming": 1}),
     ('d9010282d90102820102d90102820304', {frozenset({1, 2}), frozenset({3, 4})})
 ])
 def test_immutable_keys(payload, expected):
