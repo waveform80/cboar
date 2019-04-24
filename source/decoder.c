@@ -606,31 +606,29 @@ Decoder__decode_string(DecoderObject *self, uint8_t subtype)
 static PyObject *
 Decoder__decode_indefinite_array(DecoderObject *self)
 {
-    PyObject *item, *ret = NULL;
-    bool fail;
+    PyObject *array, *item, *ret = NULL;
 
-    ret = PyList_New(0);
-    if (ret) {
-        Decoder__set_shareable(self, ret);
-        while (1) {
+    array = PyList_New(0);
+    if (array) {
+        ret = array;
+        Decoder__set_shareable(self, array);
+        while (ret) {
             // XXX Recursion
             item = Decoder_decode_unshared(self);
             if (item == break_marker) {
                 Py_DECREF(item);
                 break;
             } else if (item) {
-                fail = PyList_Append(ret, item);
+                if (PyList_Append(array, item) == -1)
+                    ret = NULL;
                 Py_DECREF(item);
-                if (fail)
-                    goto error;
             } else
-                goto error;
+                ret = NULL;
         }
-        if (self->immutable) {
-            PyObject *tmp = PyList_AsTuple(ret);
-            if (tmp) {
-                Py_DECREF(ret);
-                ret = tmp;
+        if (ret && self->immutable) {
+            ret = PyList_AsTuple(array);
+            if (ret) {
+                Py_DECREF(array);
                 // There's a potential here for an indefinite length recursive
                 // array to wind up with a strange representation (the outer
                 // being a tuple, the inners all being a list). However, a
@@ -639,31 +637,34 @@ Decoder__decode_indefinite_array(DecoderObject *self)
                 // to throw an error
                 Decoder__set_shareable(self, ret);
             } else
-                goto error;
+                ret = NULL;
         }
+        if (!ret)
+            Py_DECREF(array);
     }
     return ret;
-error:
-    Py_DECREF(ret);
-    return NULL;
 }
 
 
 static PyObject *
 Decoder__decode_definite_array(DecoderObject *self, uint64_t length)
 {
-    PyObject *item, *ret = NULL;
+    Py_ssize_t i;
+    PyObject *array, *item, *ret = NULL;
 
     if (self->immutable) {
-        ret = PyTuple_New(length);
-        if (ret) {
-            for (Py_ssize_t i = 0; i < length; ++i) {
+        array = PyTuple_New(length);
+        if (array) {
+            ret = array;
+            for (i = 0; i < length; ++i) {
                 // XXX Recursion
                 item = Decoder_decode_unshared(self);
                 if (item)
-                    PyTuple_SET_ITEM(ret, i, item);
-                else
-                    goto error;
+                    PyTuple_SET_ITEM(array, i, item);
+                else {
+                    ret = NULL;
+                    break;
+                }
             }
         }
         // This is done *after* the construction of the tuple because while
@@ -671,25 +672,28 @@ Decoder__decode_definite_array(DecoderObject *self, uint64_t length)
         // contain a reference to itself (because a reference to it can't exist
         // during its own construction ... in Python at least; as can be seen
         // above this *is* theoretically possible at the C level).
-        Decoder__set_shareable(self, ret);
+        if (ret)
+            Decoder__set_shareable(self, ret);
     } else {
-        ret = PyList_New(length);
-        Decoder__set_shareable(self, ret);
-        if (ret) {
-            for (Py_ssize_t i = 0; i < length; ++i) {
+        array = PyList_New(length);
+        if (array) {
+            ret = array;
+            Decoder__set_shareable(self, array);
+            for (i = 0; i < length; ++i) {
                 // XXX Recursion
                 item = Decoder_decode_unshared(self);
                 if (item)
-                    PyList_SET_ITEM(ret, i, item);
-                else
-                    goto error;
+                    PyList_SET_ITEM(array, i, item);
+                else {
+                    ret = NULL;
+                    break;
+                }
             }
         }
     }
+    if (!ret)
+        Py_DECREF(array);
     return ret;
-error:
-    Py_DECREF(ret);
-    return NULL;
 }
 
 
@@ -816,7 +820,8 @@ Decoder__decode_semantic(DecoderObject *self, uint8_t subtype)
                             } else {
                                 ret = PyObject_CallFunctionObjArgs(
                                         self->tag_hook, self, tag, NULL);
-                                Decoder__set_shareable(self, ret);
+                                if (ret)
+                                    Decoder__set_shareable(self, ret);
                             }
                         }
                         Py_DECREF(value);
