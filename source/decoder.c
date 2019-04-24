@@ -714,15 +714,16 @@ Decoder__decode_map(DecoderObject *self, uint8_t subtype)
 {
     // major type 5
     uint64_t length;
-    bool fail, indefinite = true;
-    PyObject *key, *value, *ret = NULL;
+    bool indefinite = true;
+    PyObject *map, *key, *value, *ret = NULL;
 
-    ret = PyDict_New();
-    if (ret) {
-        Decoder__set_shareable(self, ret);
+    map = PyDict_New();
+    if (map) {
+        ret = map;
+        Decoder__set_shareable(self, map);
         if (Decoder__decode_length(self, subtype, &length, &indefinite) == 0) {
             if (indefinite) {
-                while (1) {
+                while (ret) {
                     // XXX Recursion
                     key = Decoder_decode_immutable_unshared(self);
                     if (key == break_marker) {
@@ -732,42 +733,40 @@ Decoder__decode_map(DecoderObject *self, uint8_t subtype)
                         // XXX Recursion
                         value = Decoder_decode_unshared(self);
                         if (value) {
-                            fail = PyDict_SetItem(ret, key, value);
+                            if (PyDict_SetItem(map, key, value) == -1)
+                                ret = NULL;
                             Py_DECREF(value);
                         } else
-                            fail = true;
+                            ret = NULL;
                         Py_DECREF(key);
                     } else
-                        goto error;
-                    if (fail)
-                        goto error;
+                        ret = NULL;
                 }
             } else {
-                while (length--) {
+                while (ret && length--) {
                     // XXX Recursion
                     key = Decoder_decode_immutable_unshared(self);
                     if (key) {
                         // XXX Recursion
                         value = Decoder_decode_unshared(self);
                         if (value) {
-                            fail = PyDict_SetItem(ret, key, value);
+                            if (PyDict_SetItem(map, key, value) == -1)
+                                ret = NULL;
                             Py_DECREF(value);
                         } else
-                            fail = true;
+                            ret = NULL;
                         Py_DECREF(key);
                     } else
-                        goto error;
-                    if (fail)
-                        goto error;
+                        ret = NULL;
                 }
             }
         } else
-            goto error;
+            ret = NULL;
+        if (!ret)
+            Py_DECREF(map);
     }
+    // XXX Object hook
     return ret;
-error:
-    Py_DECREF(ret);
-    return NULL;
 }
 
 
@@ -1240,7 +1239,7 @@ Decoder_decode(DecoderObject *self)
                 ret = Decoder__decode_special(self, lead.subtype);
                 break;
             default:
-                Py_UNREACHABLE();
+                assert(0);
         }
     }
     return ret;
