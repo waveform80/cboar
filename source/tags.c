@@ -67,6 +67,37 @@ Tag_repr(TagObject *self)
     return ret;
 }
 
+
+static PyObject *
+Tag_richcompare(PyObject *aobj, PyObject *bobj, int op)
+{
+    PyObject *ret = NULL;
+    TagObject *a, *b;
+
+    if (!(Tag_CheckExact(aobj) && Tag_CheckExact(bobj))) {
+        Py_RETURN_NOTIMPLEMENTED;
+    } else {
+        a = (TagObject *)aobj;
+        b = (TagObject *)bobj;
+
+        if (a->tag == b->tag) {
+            ret = PyObject_RichCompare(a->value, b->value, op);
+        } else {
+            switch (op) {
+                case Py_EQ: ret = Py_False; break;
+                case Py_NE: ret = Py_True;  break;
+                case Py_LT: ret = a->tag <  b->tag ? Py_True : Py_False; break;
+                case Py_LE: ret = a->tag <= b->tag ? Py_True : Py_False; break;
+                case Py_GE: ret = a->tag >= b->tag ? Py_True : Py_False; break;
+                case Py_GT: ret = a->tag >  b->tag ? Py_True : Py_False; break;
+                default: assert(0);
+            }
+            Py_INCREF(ret);
+        }
+    }
+    return ret;
+}
+
 
 // C API /////////////////////////////////////////////////////////////////////
 
@@ -126,4 +157,5 @@ PyTypeObject TagType = {
     .tp_dealloc = (destructor) Tag_dealloc,
     .tp_members = Tag_members,
     .tp_repr = (reprfunc) Tag_repr,
+    .tp_richcompare = Tag_richcompare,
 };
