@@ -323,12 +323,10 @@ def test_load_from_file(tmpdir):
     assert obj == [1, 10]
 
 
-@pytest.mark.skipif(sys.version_info < (3, 0), reason="No exception with python 2.7")
 def test_nested_exception():
     with pytest.raises((ValueError, TypeError)) as exc:
         loads(unhexlify('a1d9177082010201'))
-    exc.match(r"error decoding value at index 8: "
-              r"(unhashable type: 'CBORTag'|'CBORTag' objects are unhashable)")
+    exc.match(r"unhashable type: .*Tag")
 
 
 def test_set():
