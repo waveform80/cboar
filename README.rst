@@ -15,6 +15,20 @@ you'd expect::
 
 .. _CBOR serialization: https://cbor.io/
 
+Status
+======
+
+Don't use this yet! It's not finished although it is approaching an alpha
+release. If you're desperate enough to use it, please report any memory leaks
+as issues, and any incorrect encodings / decodings (preferably with easy to
+reproduce test cases).
+
+Be warned that while I've tried to hew closely to the design of cbor2 I have
+made a few internal changes to keep things easier at the C level so it's never
+going to be *exactly* the same. For example, rather than separate decoding
+functions called from a CBORDecoder class, it's easier to manage the
+shareable's state by moving the functions into methods on the class itself.
+
 Background
 ==========
 
