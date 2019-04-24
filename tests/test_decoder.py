@@ -291,7 +291,7 @@ def test_tag_hook_cyclic():
 
     def unmarshal_dummy(decoder, tag):
         instance = DummyType.__new__(DummyType)
-        #decoder.set_shareable(shareable_index, instance)
+        decoder.set_shareable(instance)
         instance.value = decoder.decode_from_bytes(tag.value)
         return instance
 
@@ -305,7 +305,7 @@ def test_object_hook():
         def __init__(self, state):
             self.state = state
 
-    payload = unhexlify('A2616103616205')
+    payload = unhexlify('a2616103616205')
     decoded = loads(payload, object_hook=lambda decoder, value: DummyType(value))
     assert isinstance(decoded, DummyType)
     assert decoded.state == {'a': 3, 'b': 5}

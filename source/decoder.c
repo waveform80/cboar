@@ -334,11 +334,22 @@ Decoder__read(DecoderObject *self, char *buf, const uint64_t size)
 static void
 Decoder__set_shareable(DecoderObject *self, PyObject *value)
 {
+    int ret;
+
     if (self->shared_index != -1) {
         Py_INCREF(value);  // PyList_SetItem "steals" reference
         // TODO use weakrefs? or explicitly empty list?
-        PyList_SetItem(self->shareables, self->shared_index, value);
+        ret = PyList_SetItem(self->shareables, self->shared_index, value);
+        assert(!ret);
     }
+}
+
+
+static PyObject *
+Decoder_set_shareable(DecoderObject *self, PyObject *value)
+{
+    Decoder__set_shareable(self, value);
+    Py_RETURN_NONE;
 }
 
 
@@ -806,6 +817,7 @@ Decoder__decode_semantic(DecoderObject *self, uint8_t subtype)
                             } else {
                                 ret = PyObject_CallFunctionObjArgs(
                                         self->tag_hook, self, tag, NULL);
+                                Decoder__set_shareable(self, ret);
                             }
                         }
                         Py_DECREF(value);
@@ -1106,6 +1118,9 @@ Decoder__decode_special(DecoderObject *self, uint8_t subtype)
                 break;
             case 31:
                 CBOAR_RETURN_BREAK;
+            default:
+                // XXX Raise exception?
+                break;
         }
     }
     return ret;
@@ -1224,6 +1239,8 @@ Decoder_decode(DecoderObject *self)
             case 7:
                 ret = Decoder__decode_special(self, lead.subtype);
                 break;
+            default:
+                Py_UNREACHABLE();
         }
     }
     return ret;
@@ -1327,10 +1344,30 @@ static PyMethodDef Decoder_methods[] = {
         "decode a semantically tagged value from the input"},
     {"decode_special", (PyCFunction) Decoder_decode_special, METH_O,
         "decode a special value from the input"},
-    /*{"decode_float", (PyCFunction) Decoder_decode_float, METH_O,
+    {"decode_datestr", (PyCFunction) Decoder_decode_datestr, METH_NOARGS,
+        "decode a date-time string from the input"},
+    {"decode_timestamp", (PyCFunction) Decoder_decode_timestamp, METH_NOARGS,
+        "decode a timestamp offset from the input"},
+    {"decode_positive_bignum", (PyCFunction) Decoder_decode_positive_bignum, METH_NOARGS,
+        "decode a positive big-integer from the input"},
+    {"decode_negative_bignum", (PyCFunction) Decoder_decode_negative_bignum, METH_NOARGS,
+        "decode a negative big-integer from the input"},
+    {"decode_shareable", (PyCFunction) Decoder_decode_shareable, METH_NOARGS,
+        "decode a shareable value from the input"},
+    {"decode_shared", (PyCFunction) Decoder_decode_shared, METH_NOARGS,
+        "decode a shared reference from the input"},
+    {"decode_set", (PyCFunction) Decoder_decode_set, METH_NOARGS,
+        "decode a set or frozenset from the input"},
+    {"decode_simplevalue", (PyCFunction) Decoder_decode_simplevalue, METH_NOARGS,
+        "decode a CBORSimpleValue from the input"},
+    {"decode_float16", (PyCFunction) Decoder_decode_float16, METH_NOARGS,
+        "decode a half-precision floating-point value from the input"},
+    {"decode_float32", (PyCFunction) Decoder_decode_float32, METH_NOARGS,
         "decode a floating-point value from the input"},
-    {"decode_boolean", (PyCFunction) Decoder_decode_boolean, METH_O,
-        "decode a boolean value from the input"},*/
+    {"decode_float64", (PyCFunction) Decoder_decode_float64, METH_NOARGS,
+        "decode a double-precision floating-point value from the input"},
+    {"set_shareable", (PyCFunction) Decoder_set_shareable, METH_O,
+        "set the specified object as the current shareable reference"},
     {NULL}
 };
 
