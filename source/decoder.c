@@ -32,6 +32,7 @@ static PyObject * Decoder__decode_bytestring(DecoderObject *, uint8_t);
 static PyObject * Decoder__decode_string(DecoderObject *, uint8_t);
 static PyObject * Decoder_decode_datestr(DecoderObject *);
 static PyObject * Decoder_decode_timestamp(DecoderObject *);
+static PyObject * Decoder_decode_fraction(DecoderObject *);
 static PyObject * Decoder_decode_positive_bignum(DecoderObject *);
 static PyObject * Decoder_decode_negative_bignum(DecoderObject *);
 static PyObject * Decoder_decode_simplevalue(DecoderObject *);
@@ -59,8 +60,6 @@ Decoder_dealloc(DecoderObject *self)
     Py_XDECREF(self->object_hook);
     Py_XDECREF(self->shareables);
     Py_XDECREF(self->str_errors);
-    Py_XDECREF(self->timezone);
-    Py_XDECREF(self->utc);
     Py_TYPE(self)->tp_free((PyObject *) self);
 }
 
@@ -70,7 +69,6 @@ static PyObject *
 Decoder_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
 {
     DecoderObject *self;
-    PyObject *datetime, *re;
 
     PyDateTime_IMPORT;
     if (!PyDateTimeAPI)
@@ -78,34 +76,6 @@ Decoder_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
 
     self = (DecoderObject *) type->tp_alloc(type, 0);
     if (self) {
-#if PY_MAJOR_VERSION > 3 || PY_MINOR_VERSION >= 7
-        Py_INCREF(PyDateTime_TimeZone_UTC);
-        self->utc = PyDateTime_TimeZone_UTC;
-        self->timezone = NULL;
-#else
-        // from datetime import timezone
-        datetime = PyImport_ImportModule("datetime");
-        if (!datetime)
-            goto error;
-        self->timezone = PyObject_GetAttr(datetime, _CBOAR_str_timezone);
-        Py_DECREF(datetime);
-        if (!self->timezone)
-            goto error;
-        // self.utc = timezone.utc
-        self->utc = PyObject_GetAttr(self->timezone, _CBOAR_str_utc);
-        if (!self->utc)
-            goto error;
-#endif
-        // import re
-        re = PyImport_ImportModule("re");
-        if (!re)
-            goto error;
-        // self.datestr_re = re.compile("...");
-        self->datestr_re = PyObject_CallMethodObjArgs(
-                re, _CBOAR_str_compile, _CBOAR_str_datestr_re, NULL);
-        Py_DECREF(re);
-        if (!self->datestr_re)
-            goto error;
         // self.shareables = []
         self->shareables = PyList_New(0);
         if (!self->shareables)
@@ -334,12 +304,13 @@ Decoder__read(DecoderObject *self, char *buf, const uint64_t size)
 static void
 Decoder__set_shareable(DecoderObject *self, PyObject *value)
 {
-    int ret;
-
     if (self->shared_index != -1) {
         Py_INCREF(value);  // PyList_SetItem "steals" reference
         // TODO use weakrefs? or explicitly empty list?
-        ret = PyList_SetItem(self->shareables, self->shared_index, value);
+#ifndef NDEBUG
+        int ret =
+#endif
+        PyList_SetItem(self->shareables, self->shared_index, value);
         assert(!ret);
     }
 }
@@ -793,27 +764,14 @@ Decoder__decode_semantic(DecoderObject *self, uint8_t subtype)
 
     if (Decoder__decode_length(self, subtype, &tagnum, NULL) == 0) {
         switch (tagnum) {
-            case 0:
-                ret = Decoder_decode_datestr(self);
-                break;
-            case 1:
-                ret = Decoder_decode_timestamp(self);
-                break;
-            case 2:
-                ret = Decoder_decode_positive_bignum(self);
-                break;
-            case 3:
-                ret = Decoder_decode_negative_bignum(self);
-                break;
-            case 28:
-                ret = Decoder_decode_shareable(self);
-                break;
-            case 29:
-                ret = Decoder_decode_shared(self);
-                break;
-            case 258:
-                ret = Decoder_decode_set(self);
-                break;
+            case 0:   ret = Decoder_decode_datestr(self);         break;
+            case 1:   ret = Decoder_decode_timestamp(self);       break;
+            case 2:   ret = Decoder_decode_positive_bignum(self); break;
+            case 3:   ret = Decoder_decode_negative_bignum(self); break;
+            case 4:   ret = Decoder_decode_fraction(self);        break;
+            case 28:  ret = Decoder_decode_shareable(self);       break;
+            case 29:  ret = Decoder_decode_shared(self);          break;
+            case 258: ret = Decoder_decode_set(self);             break;
             default:
                 tag = Tag_New(tagnum);
                 if (tag) {
@@ -843,6 +801,60 @@ Decoder__decode_semantic(DecoderObject *self, uint8_t subtype)
 }
 
 
+static int
+Decoder__init_datestr_re(void)
+{
+    PyObject *re;
+
+    // import re
+    re = PyImport_ImportModule("re");
+    if (!re)
+        goto error;
+    // datestr_re = re.compile("long-date-time-regex...")
+    _CBOAR_datestr_re = PyObject_CallMethodObjArgs(
+            re, _CBOAR_str_compile, _CBOAR_str_datestr_re, NULL);
+    Py_DECREF(re);
+    if (!_CBOAR_datestr_re)
+        goto error;
+    return 0;
+error:
+    PyErr_SetString(PyExc_ImportError,
+            "unable to import re and compile a regex");
+    return -1;
+}
+
+
+static int
+Decoder__init_timezone_utc(void)
+{
+    PyObject *datetime;
+
+#if PY_MAJOR_VERSION > 3 || PY_MINOR_VERSION >= 7
+    Py_INCREF(PyDateTime_TimeZone_UTC);
+    _CBOAR_timezone_utc = PyDateTime_TimeZone_UTC;
+    _CBOAR_timezone = NULL;
+#else
+    // from datetime import timezone
+    datetime = PyImport_ImportModule("datetime");
+    if (!datetime)
+        goto error;
+    _CBOAR_timezone = PyObject_GetAttr(datetime, _CBOAR_str_timezone);
+    Py_DECREF(datetime);
+    if (!_CBOAR_timezone)
+        goto error;
+    // utc = timezone.utc
+    _CBOAR_timezone_utc = PyObject_GetAttr(_CBOAR_timezone, _CBOAR_str_utc);
+    if (!_CBOAR_timezone_utc)
+        goto error;
+#endif
+    return 0;
+error:
+    PyErr_SetString(PyExc_ImportError,
+            "unable to import datetime and/or timezone");
+    return -1;
+}
+
+
 static PyObject *
 Decoder__parse_datestr(DecoderObject *self, PyObject *str)
 {
@@ -854,6 +866,8 @@ Decoder__parse_datestr(DecoderObject *self, PyObject *str)
     uint8_t m, d, H, M, S, offset_H, offset_M;
     uint32_t uS;
 
+    if (!_CBOAR_timezone_utc && Decoder__init_timezone_utc() == -1)
+        return NULL;
     buf = PyUnicode_AsUTF8AndSize(str, &size);
     if (buf) {
         Y = strtol(buf, NULL, 10);
@@ -875,8 +889,8 @@ Decoder__parse_datestr(DecoderObject *self, PyObject *str)
             uS = 0;
         if (*p == 'Z') {
             offset_sign = false;
-            Py_INCREF(self->utc);
-            tz = self->utc;
+            Py_INCREF(_CBOAR_timezone_utc);
+            tz = _CBOAR_timezone_utc;
         } else {
             offset_sign = *p == '-';
             offset_H = strtol(p, &p, 10);
@@ -889,7 +903,7 @@ Decoder__parse_datestr(DecoderObject *self, PyObject *str)
                 tz = PyTimeZone_FromOffset(delta);
 #else
                 tz = PyObject_CallFunctionObjArgs(
-                        self->timezone, delta, NULL);
+                        _CBOAR_timezone, delta, NULL);
 #endif
                 Py_DECREF(delta);
             } else {
@@ -912,12 +926,14 @@ Decoder_decode_datestr(DecoderObject *self)
     // semantic type 0
     PyObject *match, *str, *ret = NULL;
 
+    if (!_CBOAR_datestr_re && Decoder__init_datestr_re() == -1)
+        return NULL;
     // XXX Recursive call
     str = Decoder_decode(self);
     if (str) {
         if (PyUnicode_Check(str)) {
             match = PyObject_CallMethodObjArgs(
-                    self->datestr_re, _CBOAR_str_match, str, NULL);
+                    _CBOAR_datestr_re, _CBOAR_str_match, str, NULL);
             if (match) {
                 if (match != Py_None)
                     ret = Decoder__parse_datestr(self, str);
@@ -942,11 +958,13 @@ Decoder_decode_timestamp(DecoderObject *self)
     // semantic type 1
     PyObject *num, *tuple, *ret = NULL;
 
+    if (!_CBOAR_timezone_utc && Decoder__init_timezone_utc() == -1)
+        return NULL;
     // XXX Recursive call
     num = Decoder_decode(self);
     if (num) {
         if (PyNumber_Check(num)) {
-            tuple = PyTuple_Pack(2, num, self->utc);
+            tuple = PyTuple_Pack(2, num, _CBOAR_timezone_utc);
             if (tuple) {
                 ret = PyDateTime_FromTimestamp(tuple);
                 Py_DECREF(tuple);
@@ -1005,6 +1023,17 @@ Decoder_decode_negative_bignum(DecoderObject *self)
     }
     if (ret)
         Decoder__set_shareable(self, ret);
+    return ret;
+}
+
+
+static PyObject *
+Decoder_decode_fraction(DecoderObject *self)
+{
+    // semantic type 4
+    PyObject *ten, *ret = NULL;
+
+    // TODO
     return ret;
 }
 
@@ -1108,28 +1137,15 @@ Decoder__decode_special(DecoderObject *self, uint8_t subtype)
         }
     } else {
         switch (subtype) {
-            case 20:
-                Py_RETURN_FALSE;
-            case 21:
-                Py_RETURN_TRUE;
-            case 22:
-                Py_RETURN_NONE;
-            case 23:
-                CBOAR_RETURN_UNDEFINED;
-            case 24:
-                ret = Decoder_decode_simplevalue(self);
-                break;
-            case 25:
-                ret = Decoder_decode_float16(self);
-                break;
-            case 26:
-                ret = Decoder_decode_float32(self);
-                break;
-            case 27:
-                ret = Decoder_decode_float64(self);
-                break;
-            case 31:
-                CBOAR_RETURN_BREAK;
+            case 20: Py_RETURN_FALSE;
+            case 21: Py_RETURN_TRUE;
+            case 22: Py_RETURN_NONE;
+            case 23: CBOAR_RETURN_UNDEFINED;
+            case 24: ret = Decoder_decode_simplevalue(self); break;
+            case 25: ret = Decoder_decode_float16(self);     break;
+            case 26: ret = Decoder_decode_float32(self);     break;
+            case 27: ret = Decoder_decode_float64(self);     break;
+            case 31: CBOAR_RETURN_BREAK;
             default:
                 // XXX Raise exception?
                 break;
@@ -1227,39 +1243,22 @@ Decoder_decode(DecoderObject *self)
 
     if (Decoder__read(self, &lead.byte, 1) == 0) {
         switch (lead.major) {
-            case 0:
-                ret = Decoder__decode_uint(self, lead.subtype);
-                break;
-            case 1:
-                ret = Decoder__decode_negint(self, lead.subtype);
-                break;
-            case 2:
-                ret = Decoder__decode_bytestring(self, lead.subtype);
-                break;
-            case 3:
-                ret = Decoder__decode_string(self, lead.subtype);
-                break;
-            case 4:
-                ret = Decoder__decode_array(self, lead.subtype);
-                break;
-            case 5:
-                ret = Decoder__decode_map(self, lead.subtype);
-                break;
-            case 6:
-                ret = Decoder__decode_semantic(self, lead.subtype);
-                break;
-            case 7:
-                ret = Decoder__decode_special(self, lead.subtype);
-                break;
-            default:
-                assert(0);
+            case 0: ret = Decoder__decode_uint(self, lead.subtype);       break;
+            case 1: ret = Decoder__decode_negint(self, lead.subtype);     break;
+            case 2: ret = Decoder__decode_bytestring(self, lead.subtype); break;
+            case 3: ret = Decoder__decode_string(self, lead.subtype);     break;
+            case 4: ret = Decoder__decode_array(self, lead.subtype);      break;
+            case 5: ret = Decoder__decode_map(self, lead.subtype);        break;
+            case 6: ret = Decoder__decode_semantic(self, lead.subtype);   break;
+            case 7: ret = Decoder__decode_special(self, lead.subtype);    break;
+            default: assert(0);
         }
     }
     return ret;
 }
 
 
-static inline PyObject *
+static PyObject *
 Decoder_decode_unshared(DecoderObject *self)
 {
     int32_t old_index;
@@ -1273,7 +1272,7 @@ Decoder_decode_unshared(DecoderObject *self)
 }
 
 
-static inline PyObject *
+static PyObject *
 Decoder_decode_immutable(DecoderObject *self)
 {
     bool old_immutable;
@@ -1287,7 +1286,7 @@ Decoder_decode_immutable(DecoderObject *self)
 }
 
 
-static inline PyObject *
+static PyObject *
 Decoder_decode_immutable_unshared(DecoderObject *self)
 {
     bool old_immutable;

@@ -10,9 +10,6 @@ typedef struct {
     PyObject *object_hook;
     PyObject *shareables;
     PyObject *str_errors;
-    PyObject *timezone;
-    PyObject *utc;
-    PyObject *datestr_re;
     bool immutable;
     int32_t shared_index;
 } DecoderObject;

@@ -36,33 +36,6 @@
 // it's not fool-proof; there's probably some leaks left. Please file bugs for
 // any leaks you detect!
 
-
-PyObject *_CBOAR_empty_bytes = NULL;
-PyObject *_CBOAR_empty_str = NULL;
-PyObject *_CBOAR_str_as_string = NULL;
-PyObject *_CBOAR_str_as_tuple = NULL;
-PyObject *_CBOAR_str_bit_length = NULL;
-PyObject *_CBOAR_str_bytes = NULL;
-PyObject *_CBOAR_str_compile = NULL;
-PyObject *_CBOAR_str_datestr_re = NULL;
-PyObject *_CBOAR_str_denominator = NULL;
-PyObject *_CBOAR_str_fromtimestamp = NULL;
-PyObject *_CBOAR_str_groups = NULL;
-PyObject *_CBOAR_str_is_infinite = NULL;
-PyObject *_CBOAR_str_is_nan = NULL;
-PyObject *_CBOAR_str_isoformat = NULL;
-PyObject *_CBOAR_str_join = NULL;
-PyObject *_CBOAR_str_match = NULL;
-PyObject *_CBOAR_str_numerator = NULL;
-PyObject *_CBOAR_str_OrderedDict = NULL;
-PyObject *_CBOAR_str_pattern = NULL;
-PyObject *_CBOAR_str_read = NULL;
-PyObject *_CBOAR_str_timestamp = NULL;
-PyObject *_CBOAR_str_timezone = NULL;
-PyObject *_CBOAR_str_utc = NULL;
-PyObject *_CBOAR_str_utc_suffix = NULL;
-PyObject *_CBOAR_str_write = NULL;
-
 
 // break_marker singleton ////////////////////////////////////////////////////
 
@@ -205,11 +178,55 @@ CBORSimpleValue_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
 
 // Module definition /////////////////////////////////////////////////////////
 
+PyObject *_CBOAR_empty_bytes = NULL;
+PyObject *_CBOAR_empty_str = NULL;
+PyObject *_CBOAR_str_as_string = NULL;
+PyObject *_CBOAR_str_as_tuple = NULL;
+PyObject *_CBOAR_str_bit_length = NULL;
+PyObject *_CBOAR_str_bytes = NULL;
+PyObject *_CBOAR_str_compile = NULL;
+PyObject *_CBOAR_str_datestr_re = NULL;
+PyObject *_CBOAR_str_denominator = NULL;
+PyObject *_CBOAR_str_fromtimestamp = NULL;
+PyObject *_CBOAR_str_groups = NULL;
+PyObject *_CBOAR_str_is_infinite = NULL;
+PyObject *_CBOAR_str_is_nan = NULL;
+PyObject *_CBOAR_str_isoformat = NULL;
+PyObject *_CBOAR_str_join = NULL;
+PyObject *_CBOAR_str_match = NULL;
+PyObject *_CBOAR_str_numerator = NULL;
+PyObject *_CBOAR_str_OrderedDict = NULL;
+PyObject *_CBOAR_str_pattern = NULL;
+PyObject *_CBOAR_str_read = NULL;
+PyObject *_CBOAR_str_timestamp = NULL;
+PyObject *_CBOAR_str_timezone = NULL;
+PyObject *_CBOAR_str_utc = NULL;
+PyObject *_CBOAR_str_utc_suffix = NULL;
+PyObject *_CBOAR_str_write = NULL;
+
+// NOTE: The following globals are defined here, and cleaned up in cboar_free
+// below but they're initialized on-demand by the various methods that need
+// them (e.g. in Decoder.decode_datestr, Encoder.__new__, etc.)
+PyObject *_CBOAR_timezone = NULL;      // datetime.timezone
+PyObject *_CBOAR_timezone_utc = NULL;  // datetime.timezone.utc
+PyObject *_CBOAR_ordered_dict = NULL;  // collections.OrderedDict
+PyObject *_CBOAR_datestr_re = NULL;    // re.compile(datestr_re)
+
+static void
+cboar_free(PyObject *m)
+{
+    Py_CLEAR(_CBOAR_timezone_utc);
+    Py_CLEAR(_CBOAR_timezone);
+    Py_CLEAR(_CBOAR_ordered_dict);
+    Py_CLEAR(_CBOAR_datestr_re);
+}
+
 static struct PyModuleDef _cboarmodule = {
     PyModuleDef_HEAD_INIT,
     .m_name = "_cboar",
     .m_doc = NULL,
-    .m_size = -1, // XXX Change to 0?
+    .m_size = -1,
+    .m_free = (freefunc) cboar_free,
 };
 
 PyMODINIT_FUNC

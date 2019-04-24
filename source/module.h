@@ -44,3 +44,9 @@ extern PyObject *_CBOAR_str_timezone;
 extern PyObject *_CBOAR_str_utc;
 extern PyObject *_CBOAR_str_utc_suffix;
 extern PyObject *_CBOAR_str_write;
+
+// Global references (see module.c for further details)
+extern PyObject *_CBOAR_timezone;
+extern PyObject *_CBOAR_timezone_utc;
+extern PyObject *_CBOAR_ordered_dict;
+extern PyObject *_CBOAR_datestr_re;

@@ -36,33 +36,45 @@ Encoder_dealloc(EncoderObject *self)
 }
 
 
+static int
+Encoder__init_ordered_dict(void)
+{
+    PyObject *collections;
+
+    // from collections import OrderedDict
+    collections = PyImport_ImportModule("collections");
+    if (!collections)
+        goto error;
+    _CBOAR_ordered_dict = PyObject_GetAttr(collections, _CBOAR_str_OrderedDict);
+    Py_DECREF(collections);
+    if (!_CBOAR_ordered_dict)
+        goto error;
+    return 0;
+error:
+    PyErr_SetString(PyExc_ImportError,
+            "unable to import OrderedDict from collections");
+    return -1;
+}
+
+
 // Encoder.__new__(cls, *args, **kwargs)
 static PyObject *
 Encoder_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
 {
     EncoderObject *self;
-    PyObject *collections, *ordered_dict;
 
     PyDateTime_IMPORT;
     if (!PyDateTimeAPI)
         return NULL;
 
+    if (!_CBOAR_ordered_dict && Encoder__init_ordered_dict() == -1)
+        return NULL;
+
     self = (EncoderObject *) type->tp_alloc(type, 0);
     if (self) {
-        // from collections import OrderedDict
-        collections = PyImport_ImportModule("collections");
-        if (!collections)
-            goto error;
-        ordered_dict = PyObject_GetAttr(collections, _CBOAR_str_OrderedDict);
-        Py_DECREF(collections);
-        if (!ordered_dict)
-            goto error;
-        // self.encoders = OrderedDict()
-        self->encoders = PyObject_CallObject(ordered_dict, NULL);
-        Py_DECREF(ordered_dict);
+        self->encoders = PyObject_CallObject(_CBOAR_ordered_dict, NULL);
         if (!self->encoders)
             goto error;
-        // self.shared = {}
         self->shared = PyDict_New();
         if (!self->shared)
             goto error;
