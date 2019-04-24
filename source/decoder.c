@@ -769,7 +769,15 @@ Decoder__decode_map(DecoderObject *self, uint8_t subtype)
         if (!ret)
             Py_DECREF(map);
     }
-    // XXX Object hook
+    if (ret && self->object_hook != Py_None) {
+        map = PyObject_CallFunctionObjArgs(
+                self->object_hook, self, ret, NULL);
+        if (map) {
+            Decoder__set_shareable(self, map);
+            Py_DECREF(ret);
+            ret = map;
+        }
+    }
     return ret;
 }
 
