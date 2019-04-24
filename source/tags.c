@@ -1,9 +1,7 @@
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
+#include "structmember.h"
 #include "tags.h"
-
-static int Tag_set_tag(TagObject *, PyObject *, void *);
-static int Tag_set_value(TagObject *, PyObject *, void *);
 
 
 // Constructors and destructors //////////////////////////////////////////////
@@ -38,79 +36,35 @@ static int
 Tag_init(TagObject *self, PyObject *args, PyObject *kwargs)
 {
     static char *keywords[] = {"tag", "value", NULL};
-    PyObject *tag = NULL, *value = NULL;
+    PyObject *tmp, *value = NULL;
 
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|OO", keywords, &tag, &value))
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|KO", keywords,
+                &self->tag, &value))
         return -1;
 
-    if (tag && Tag_set_tag(self, tag, NULL) == -1)
-        return -1;
-    if (value && Tag_set_value(self, value, NULL) == -1)
-        return -1;
-
+    if (value) {
+        tmp = self->value;
+        Py_INCREF(value);
+        self->value = value;
+        Py_XDECREF(tmp);
+    }
     return 0;
 }
 
 
-// Property accessors ////////////////////////////////////////////////////////
+// Special methods ///////////////////////////////////////////////////////////
 
-// Tag._get_tag(self)
 static PyObject *
-Tag_get_tag(TagObject *self, void *closure)
+Tag_repr(TagObject *self)
 {
-    return PyLong_FromUnsignedLongLong(self->tag);
-}
+    PyObject *ret = NULL;
 
-
-// Tag._set_tag(self, value)
-static int
-Tag_set_tag(TagObject *self, PyObject *value, void *closure)
-{
-    uint64_t tag;
-
-    if (!value) {
-        PyErr_SetString(PyExc_TypeError, "cannot delete tag attribute");
-        return -1;
-    }
-    if (!PyLong_CheckExact(value)) {
-        PyErr_Format(PyExc_ValueError,
-                "invalid tag value %R (expected int)", value);
-        return -1;
-    }
-    tag = PyLong_AsUnsignedLongLong(value);
-    if (PyErr_Occurred())
-        return -1;
-
-    self->tag = tag;
-    return 0;
-}
-
-
-// Tag._get_value(self)
-static PyObject *
-Tag_get_value(TagObject *self, void *closure)
-{
-    Py_INCREF(self->value);
-    return self->value;
-}
-
-
-// Tag._set_value(self, value)
-static int
-Tag_set_value(TagObject *self, PyObject *value, void *closure)
-{
-    PyObject *tmp;
-
-    if (!value) {
-        PyErr_SetString(PyExc_TypeError, "cannot delete value attribute");
-        return -1;
-    }
-
-    tmp = self->value;
-    Py_INCREF(value);
-    self->value = value;
-    Py_DECREF(tmp);
-    return 0;
+    if (Py_ReprEnter((PyObject *)self))
+        ret = PyUnicode_FromString("CBORTag(...)");
+    else
+        ret = PyUnicode_FromFormat("CBORTag(%llu, %R)", self->tag, self->value);
+    Py_ReprLeave((PyObject *)self);
+    return ret;
 }
 
 
@@ -133,21 +87,30 @@ Tag_New(uint64_t tag)
 int
 Tag_SetValue(PyObject *tag, PyObject *value)
 {
-    if (!Tag_CheckExact(tag)) {
-        PyErr_BadInternalCall();
+    PyObject *tmp;
+    TagObject *self;
+
+    if (!Tag_CheckExact(tag))
         return -1;
-    }
-    return Tag_set_value((TagObject *)tag, value, NULL);
+    if (!value)
+        return -1;
+
+    self = (TagObject*)tag;
+    tmp = self->value;
+    Py_INCREF(value);
+    self->value = value;
+    Py_XDECREF(tmp);
+    return 0;
 }
 
 
 // Tag class definition //////////////////////////////////////////////////////
 
-static PyGetSetDef Tag_getsetters[] = {
-    {"tag", (getter) Tag_get_tag, (setter) Tag_set_tag,
-        "integer tag value", NULL},
-    {"value", (getter) Tag_get_value, (setter) Tag_set_value,
-        "the decoded value", NULL},
+static PyMemberDef Tag_members[] = {
+    {"tag", T_ULONGLONG, offsetof(TagObject, tag), 0,
+        "the semantic tag associated with the value"},
+    {"value", T_OBJECT_EX, offsetof(TagObject, value), 0,
+        "the tagged value"},
     {NULL}
 };
 
@@ -161,5 +124,6 @@ PyTypeObject TagType = {
     .tp_new = Tag_new,
     .tp_init = (initproc) Tag_init,
     .tp_dealloc = (destructor) Tag_dealloc,
-    .tp_getset = Tag_getsetters,
+    .tp_members = Tag_members,
+    .tp_repr = (reprfunc) Tag_repr,
 };
