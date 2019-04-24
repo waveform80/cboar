@@ -27,6 +27,7 @@ extern PyObject *_CBOAR_str_bit_length;
 extern PyObject *_CBOAR_str_bytes;
 extern PyObject *_CBOAR_str_compile;
 extern PyObject *_CBOAR_str_datestr_re;
+extern PyObject *_CBOAR_str_Decimal;
 extern PyObject *_CBOAR_str_denominator;
 extern PyObject *_CBOAR_str_fromtimestamp;
 extern PyObject *_CBOAR_str_groups;
@@ -48,5 +49,6 @@ extern PyObject *_CBOAR_str_write;
 // Global references (see module.c for further details)
 extern PyObject *_CBOAR_timezone;
 extern PyObject *_CBOAR_timezone_utc;
-extern PyObject *_CBOAR_ordered_dict;
+extern PyObject *_CBOAR_OrderedDict;
+extern PyObject *_CBOAR_Decimal;
 extern PyObject *_CBOAR_datestr_re;

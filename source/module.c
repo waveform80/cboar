@@ -186,6 +186,7 @@ PyObject *_CBOAR_str_bit_length = NULL;
 PyObject *_CBOAR_str_bytes = NULL;
 PyObject *_CBOAR_str_compile = NULL;
 PyObject *_CBOAR_str_datestr_re = NULL;
+PyObject *_CBOAR_str_Decimal = NULL;
 PyObject *_CBOAR_str_denominator = NULL;
 PyObject *_CBOAR_str_fromtimestamp = NULL;
 PyObject *_CBOAR_str_groups = NULL;
@@ -209,7 +210,8 @@ PyObject *_CBOAR_str_write = NULL;
 // them (e.g. in Decoder.decode_datestr, Encoder.__new__, etc.)
 PyObject *_CBOAR_timezone = NULL;      // datetime.timezone
 PyObject *_CBOAR_timezone_utc = NULL;  // datetime.timezone.utc
-PyObject *_CBOAR_ordered_dict = NULL;  // collections.OrderedDict
+PyObject *_CBOAR_OrderedDict = NULL;   // collections.OrderedDict
+PyObject *_CBOAR_Decimal = NULL;       // decimal.Decimal
 PyObject *_CBOAR_datestr_re = NULL;    // re.compile(datestr_re)
 
 static void
@@ -217,7 +219,8 @@ cboar_free(PyObject *m)
 {
     Py_CLEAR(_CBOAR_timezone_utc);
     Py_CLEAR(_CBOAR_timezone);
-    Py_CLEAR(_CBOAR_ordered_dict);
+    Py_CLEAR(_CBOAR_OrderedDict);
+    Py_CLEAR(_CBOAR_Decimal);
     Py_CLEAR(_CBOAR_datestr_re);
 }
 
@@ -283,6 +286,7 @@ PyInit__cboar(void)
     INTERN_STRING(bit_length);
     INTERN_STRING(bytes);
     INTERN_STRING(compile);
+    INTERN_STRING(Decimal);
     INTERN_STRING(denominator);
     INTERN_STRING(fromtimestamp);
     INTERN_STRING(groups);

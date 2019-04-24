@@ -33,6 +33,7 @@ static PyObject * Decoder__decode_string(DecoderObject *, uint8_t);
 static PyObject * Decoder_decode_datestr(DecoderObject *);
 static PyObject * Decoder_decode_timestamp(DecoderObject *);
 static PyObject * Decoder_decode_fraction(DecoderObject *);
+static PyObject * Decoder_decode_bigfloat(DecoderObject *);
 static PyObject * Decoder_decode_positive_bignum(DecoderObject *);
 static PyObject * Decoder_decode_negative_bignum(DecoderObject *);
 static PyObject * Decoder_decode_simplevalue(DecoderObject *);
@@ -275,6 +276,81 @@ Decoder_set_str_errors(DecoderObject *self, PyObject *value, void *closure)
 
 
 // Utility methods ///////////////////////////////////////////////////////////
+
+static int
+Decoder__init_decimal(void)
+{
+    PyObject *decimal;
+
+    // from decimal import Decimal
+    decimal = PyImport_ImportModule("decimal");
+    if (!decimal)
+        goto error;
+    _CBOAR_Decimal = PyObject_GetAttr(decimal, _CBOAR_str_Decimal);
+    Py_DECREF(decimal);
+    if (!_CBOAR_Decimal)
+        goto error;
+    return 0;
+error:
+    PyErr_SetString(PyExc_ImportError,
+            "unable to import Decimal from decimal");
+    return -1;
+}
+
+
+static int
+Decoder__init_datestr_re(void)
+{
+    PyObject *re;
+
+    // import re
+    // datestr_re = re.compile("long-date-time-regex...")
+    re = PyImport_ImportModule("re");
+    if (!re)
+        goto error;
+    _CBOAR_datestr_re = PyObject_CallMethodObjArgs(
+            re, _CBOAR_str_compile, _CBOAR_str_datestr_re, NULL);
+    Py_DECREF(re);
+    if (!_CBOAR_datestr_re)
+        goto error;
+    return 0;
+error:
+    PyErr_SetString(PyExc_ImportError,
+            "unable to import re and compile a regex");
+    return -1;
+}
+
+
+static int
+Decoder__init_timezone_utc(void)
+{
+    PyObject *datetime;
+
+#if PY_MAJOR_VERSION > 3 || PY_MINOR_VERSION >= 7
+    Py_INCREF(PyDateTime_TimeZone_UTC);
+    _CBOAR_timezone_utc = PyDateTime_TimeZone_UTC;
+    _CBOAR_timezone = NULL;
+#else
+    // from datetime import timezone
+    // utc = timezone.utc
+    datetime = PyImport_ImportModule("datetime");
+    if (!datetime)
+        goto error;
+    _CBOAR_timezone = PyObject_GetAttr(datetime, _CBOAR_str_timezone);
+    Py_DECREF(datetime);
+    if (!_CBOAR_timezone)
+        goto error;
+    _CBOAR_timezone_utc = PyObject_GetAttr(_CBOAR_timezone, _CBOAR_str_utc);
+    if (!_CBOAR_timezone_utc)
+        goto error;
+#endif
+    return 0;
+error:
+    PyErr_SetString(PyExc_ImportError,
+            "unable to import datetime and/or timezone");
+    return -1;
+}
+
 
 static int
 Decoder__read(DecoderObject *self, char *buf, const uint64_t size)
@@ -769,6 +845,7 @@ Decoder__decode_semantic(DecoderObject *self, uint8_t subtype)
             case 2:   ret = Decoder_decode_positive_bignum(self); break;
             case 3:   ret = Decoder_decode_negative_bignum(self); break;
             case 4:   ret = Decoder_decode_fraction(self);        break;
+            case 5:   ret = Decoder_decode_bigfloat(self);        break;
             case 28:  ret = Decoder_decode_shareable(self);       break;
             case 29:  ret = Decoder_decode_shared(self);          break;
             case 258: ret = Decoder_decode_set(self);             break;
@@ -798,60 +875,6 @@ Decoder__decode_semantic(DecoderObject *self, uint8_t subtype)
         }
     }
     return ret;
-}
-
-
-static int
-Decoder__init_datestr_re(void)
-{
-    PyObject *re;
-
-    // import re
-    re = PyImport_ImportModule("re");
-    if (!re)
-        goto error;
-    // datestr_re = re.compile("long-date-time-regex...")
-    _CBOAR_datestr_re = PyObject_CallMethodObjArgs(
-            re, _CBOAR_str_compile, _CBOAR_str_datestr_re, NULL);
-    Py_DECREF(re);
-    if (!_CBOAR_datestr_re)
-        goto error;
-    return 0;
-error:
-    PyErr_SetString(PyExc_ImportError,
-            "unable to import re and compile a regex");
-    return -1;
-}
-
-
-static int
-Decoder__init_timezone_utc(void)
-{
-    PyObject *datetime;
-
-#if PY_MAJOR_VERSION > 3 || PY_MINOR_VERSION >= 7
-    Py_INCREF(PyDateTime_TimeZone_UTC);
-    _CBOAR_timezone_utc = PyDateTime_TimeZone_UTC;
-    _CBOAR_timezone = NULL;
-#else
-    // from datetime import timezone
-    datetime = PyImport_ImportModule("datetime");
-    if (!datetime)
-        goto error;
-    _CBOAR_timezone = PyObject_GetAttr(datetime, _CBOAR_str_timezone);
-    Py_DECREF(datetime);
-    if (!_CBOAR_timezone)
-        goto error;
-    // utc = timezone.utc
-    _CBOAR_timezone_utc = PyObject_GetAttr(_CBOAR_timezone, _CBOAR_str_utc);
-    if (!_CBOAR_timezone_utc)
-        goto error;
-#endif
-    return 0;
-error:
-    PyErr_SetString(PyExc_ImportError,
-            "unable to import datetime and/or timezone");
-    return -1;
 }
 
 
@@ -1031,9 +1054,62 @@ static PyObject *
 Decoder_decode_fraction(DecoderObject *self)
 {
     // semantic type 4
-    PyObject *ten, *ret = NULL;
+    PyObject *tuple, *tmp, *sig, *exp, *ten, *ret = NULL;
 
-    // TODO
+    if (!_CBOAR_Decimal && Decoder__init_decimal() == -1)
+        return NULL;
+    // NOTE: There's no particular necessity for this to be immutable, it's
+    // just a performance choice
+    tuple = Decoder_decode_immutable_unshared(self);
+    if (tuple) {
+        if (PyTuple_CheckExact(tuple) && PyTuple_GET_SIZE(tuple) == 2) {
+            exp = PyTuple_GET_ITEM(tuple, 0);
+            sig = PyTuple_GET_ITEM(tuple, 1);
+            ten = PyObject_CallFunction(_CBOAR_Decimal, "i", 10);
+            if (ten) {
+                tmp = PyNumber_Power(ten, exp, Py_None);
+                if (tmp) {
+                    ret = PyNumber_Multiply(sig, tmp);
+                    Py_DECREF(tmp);
+                }
+                Py_DECREF(ten);
+            }
+        }
+        Py_DECREF(tuple);
+    }
+    if (ret)
+        Decoder__set_shareable(self, ret);
+    return ret;
+}
+
+
+static PyObject *
+Decoder_decode_bigfloat(DecoderObject *self)
+{
+    // semantic type 5
+    PyObject *tuple, *tmp, *sig, *exp, *two, *ret = NULL;
+
+    if (!_CBOAR_Decimal && Decoder__init_decimal() == -1)
+        return NULL;
+    tuple = Decoder_decode_immutable_unshared(self);
+    if (tuple) {
+        if (PyTuple_CheckExact(tuple) && PyTuple_GET_SIZE(tuple) == 2) {
+            exp = PyTuple_GET_ITEM(tuple, 0);
+            sig = PyTuple_GET_ITEM(tuple, 1);
+            two = PyObject_CallFunction(_CBOAR_Decimal, "i", 2);
+            if (two) {
+                tmp = PyNumber_Power(two, exp, Py_None);
+                if (tmp) {
+                    ret = PyNumber_Multiply(sig, tmp);
+                    Py_DECREF(tmp);
+                }
+                Py_DECREF(two);
+            }
+        }
+        Py_DECREF(tuple);
+    }
+    if (ret)
+        Decoder__set_shareable(self, ret);
     return ret;
 }
 
