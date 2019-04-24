@@ -34,6 +34,8 @@ static PyObject * Decoder_decode_datestr(DecoderObject *);
 static PyObject * Decoder_decode_timestamp(DecoderObject *);
 static PyObject * Decoder_decode_fraction(DecoderObject *);
 static PyObject * Decoder_decode_bigfloat(DecoderObject *);
+static PyObject * Decoder_decode_rational(DecoderObject *);
+static PyObject * Decoder_decode_regexp(DecoderObject *);
 static PyObject * Decoder_decode_positive_bignum(DecoderObject *);
 static PyObject * Decoder_decode_negative_bignum(DecoderObject *);
 static PyObject * Decoder_decode_simplevalue(DecoderObject *);
@@ -292,14 +294,33 @@ Decoder__init_decimal(void)
         goto error;
     return 0;
 error:
-    PyErr_SetString(PyExc_ImportError,
-            "unable to import Decimal from decimal");
+    PyErr_SetString(PyExc_ImportError, "unable to import Decimal from decimal");
     return -1;
 }
 
 
 static int
-Decoder__init_datestr_re(void)
+Decoder__init_fraction(void)
+{
+    PyObject *fractions;
+
+    // from fractions import Fraction
+    fractions = PyImport_ImportModule("fractions");
+    if (!fractions)
+        goto error;
+    _CBOAR_Fraction = PyObject_GetAttr(fractions, _CBOAR_str_Fraction);
+    Py_DECREF(fractions);
+    if (!_CBOAR_Fraction)
+        goto error;
+    return 0;
+error:
+    PyErr_SetString(PyExc_ImportError, "unable to import Fraction from fractions");
+    return -1;
+}
+
+
+static int
+Decoder__init_re_compile(void)
 {
     PyObject *re;
 
@@ -308,15 +329,17 @@ Decoder__init_datestr_re(void)
     re = PyImport_ImportModule("re");
     if (!re)
         goto error;
-    _CBOAR_datestr_re = PyObject_CallMethodObjArgs(
-            re, _CBOAR_str_compile, _CBOAR_str_datestr_re, NULL);
+    _CBOAR_re_compile = PyObject_GetAttr(re, _CBOAR_str_compile);
     Py_DECREF(re);
+    if (!_CBOAR_re_compile)
+        goto error;
+    _CBOAR_datestr_re = PyObject_CallFunctionObjArgs(
+            _CBOAR_re_compile, _CBOAR_str_datestr_re, NULL);
     if (!_CBOAR_datestr_re)
         goto error;
     return 0;
 error:
-    PyErr_SetString(PyExc_ImportError,
-            "unable to import re and compile a regex");
+    PyErr_SetString(PyExc_ImportError, "unable to import compile from re");
     return -1;
 }
 
@@ -346,8 +369,7 @@ Decoder__init_timezone_utc(void)
 #endif
     return 0;
 error:
-    PyErr_SetString(PyExc_ImportError,
-            "unable to import datetime and/or timezone");
+    PyErr_SetString(PyExc_ImportError, "unable to import timezone from datetime");
     return -1;
 }
 
@@ -848,6 +870,8 @@ Decoder__decode_semantic(DecoderObject *self, uint8_t subtype)
             case 5:   ret = Decoder_decode_bigfloat(self);        break;
             case 28:  ret = Decoder_decode_shareable(self);       break;
             case 29:  ret = Decoder_decode_shared(self);          break;
+            case 30:  ret = Decoder_decode_rational(self);        break;
+            case 35:  ret = Decoder_decode_regexp(self);          break;
             case 258: ret = Decoder_decode_set(self);             break;
             default:
                 tag = Tag_New(tagnum);
@@ -949,7 +973,7 @@ Decoder_decode_datestr(DecoderObject *self)
     // semantic type 0
     PyObject *match, *str, *ret = NULL;
 
-    if (!_CBOAR_datestr_re && Decoder__init_datestr_re() == -1)
+    if (!_CBOAR_datestr_re && Decoder__init_re_compile() == -1)
         return NULL;
     // XXX Recursive call
     str = Decoder_decode(self);
@@ -1091,6 +1115,7 @@ Decoder_decode_bigfloat(DecoderObject *self)
 
     if (!_CBOAR_Decimal && Decoder__init_decimal() == -1)
         return NULL;
+    // NOTE: see semantic type 4
     tuple = Decoder_decode_immutable_unshared(self);
     if (tuple) {
         if (PyTuple_CheckExact(tuple) && PyTuple_GET_SIZE(tuple) == 2) {
@@ -1160,6 +1185,53 @@ Decoder_decode_shared(DecoderObject *self)
         }
         Py_DECREF(index);
     }
+    return ret;
+}
+
+
+static PyObject *
+Decoder_decode_rational(DecoderObject *self)
+{
+    // semantic type 30
+    PyObject *tuple, *ret = NULL;
+
+    if (!_CBOAR_Fraction && Decoder__init_fraction() == -1)
+        return NULL;
+    // NOTE: see semantic type 4
+    tuple = Decoder_decode_immutable_unshared(self);
+    if (tuple) {
+        if (PyTuple_CheckExact(tuple) && PyTuple_GET_SIZE(tuple) == 2) {
+            ret = PyObject_CallFunctionObjArgs(
+                    _CBOAR_Fraction,
+                    PyTuple_GET_ITEM(tuple, 0),
+                    PyTuple_GET_ITEM(tuple, 1),
+                    NULL);
+        }
+        Py_DECREF(tuple);
+    }
+    if (ret)
+        Decoder__set_shareable(self, ret);
+    return ret;
+}
+
+
+static PyObject *
+Decoder_decode_regexp(DecoderObject *self)
+{
+    // semantic type 35
+    PyObject *pattern, *ret = NULL;
+
+    if (!_CBOAR_re_compile && Decoder__init_re_compile() == -1)
+        return NULL;
+    // NOTE: see semantic type 4
+    pattern = Decoder_decode_immutable_unshared(self);
+    if (pattern) {
+        ret = PyObject_CallFunctionObjArgs(
+                _CBOAR_re_compile, pattern, NULL);
+        Py_DECREF(pattern);
+    }
+    if (ret)
+        Decoder__set_shareable(self, ret);
     return ret;
 }
 
