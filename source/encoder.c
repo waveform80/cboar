@@ -36,27 +36,6 @@ Encoder_dealloc(EncoderObject *self)
 }
 
 
-static int
-Encoder__init_ordered_dict(void)
-{
-    PyObject *collections;
-
-    // from collections import OrderedDict
-    collections = PyImport_ImportModule("collections");
-    if (!collections)
-        goto error;
-    _CBOAR_OrderedDict = PyObject_GetAttr(collections, _CBOAR_str_OrderedDict);
-    Py_DECREF(collections);
-    if (!_CBOAR_OrderedDict)
-        goto error;
-    return 0;
-error:
-    PyErr_SetString(PyExc_ImportError,
-            "unable to import OrderedDict from collections");
-    return -1;
-}
-
-
 // Encoder.__new__(cls, *args, **kwargs)
 static PyObject *
 Encoder_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
@@ -67,7 +46,7 @@ Encoder_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
     if (!PyDateTimeAPI)
         return NULL;
 
-    if (!_CBOAR_OrderedDict && Encoder__init_ordered_dict() == -1)
+    if (!_CBOAR_OrderedDict && _CBOAR_init_OrderedDict() == -1)
         return NULL;
 
     self = (EncoderObject *) type->tp_alloc(type, 0);

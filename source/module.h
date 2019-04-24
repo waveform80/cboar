@@ -45,13 +45,23 @@ extern PyObject *_CBOAR_str_timestamp;
 extern PyObject *_CBOAR_str_timezone;
 extern PyObject *_CBOAR_str_utc;
 extern PyObject *_CBOAR_str_utc_suffix;
+extern PyObject *_CBOAR_str_UUID;
 extern PyObject *_CBOAR_str_write;
 
-// Global references (see module.c for further details)
+// Global references (initialized by functions declared below)
 extern PyObject *_CBOAR_timezone;
 extern PyObject *_CBOAR_timezone_utc;
 extern PyObject *_CBOAR_OrderedDict;
 extern PyObject *_CBOAR_Decimal;
 extern PyObject *_CBOAR_Fraction;
+extern PyObject *_CBOAR_UUID;
 extern PyObject *_CBOAR_re_compile;
 extern PyObject *_CBOAR_datestr_re;
+
+// Initializers for the cached references above
+int _CBOAR_init_timezone_utc(void); // also handles timezone
+int _CBOAR_init_OrderedDict(void);
+int _CBOAR_init_Decimal(void);
+int _CBOAR_init_Fraction(void);
+int _CBOAR_init_UUID(void);
+int _CBOAR_init_re_compile(void); // also handles datestr_re

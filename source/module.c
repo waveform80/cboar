@@ -176,6 +176,144 @@ CBORSimpleValue_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
 }
 
 
+// Cache-init functions //////////////////////////////////////////////////////
+
+int
+_CBOAR_init_OrderedDict(void)
+{
+    PyObject *collections;
+
+    // from collections import OrderedDict
+    collections = PyImport_ImportModule("collections");
+    if (!collections)
+        goto error;
+    _CBOAR_OrderedDict = PyObject_GetAttr(collections, _CBOAR_str_OrderedDict);
+    Py_DECREF(collections);
+    if (!_CBOAR_OrderedDict)
+        goto error;
+    return 0;
+error:
+    PyErr_SetString(PyExc_ImportError,
+            "unable to import OrderedDict from collections");
+    return -1;
+}
+
+
+int
+_CBOAR_init_Decimal(void)
+{
+    PyObject *decimal;
+
+    // from decimal import Decimal
+    decimal = PyImport_ImportModule("decimal");
+    if (!decimal)
+        goto error;
+    _CBOAR_Decimal = PyObject_GetAttr(decimal, _CBOAR_str_Decimal);
+    Py_DECREF(decimal);
+    if (!_CBOAR_Decimal)
+        goto error;
+    return 0;
+error:
+    PyErr_SetString(PyExc_ImportError, "unable to import Decimal from decimal");
+    return -1;
+}
+
+
+int
+_CBOAR_init_Fraction(void)
+{
+    PyObject *fractions;
+
+    // from fractions import Fraction
+    fractions = PyImport_ImportModule("fractions");
+    if (!fractions)
+        goto error;
+    _CBOAR_Fraction = PyObject_GetAttr(fractions, _CBOAR_str_Fraction);
+    Py_DECREF(fractions);
+    if (!_CBOAR_Fraction)
+        goto error;
+    return 0;
+error:
+    PyErr_SetString(PyExc_ImportError, "unable to import Fraction from fractions");
+    return -1;
+}
+
+
+int
+_CBOAR_init_UUID(void)
+{
+    PyObject *uuid;
+
+    // from uuid import UUID
+    uuid = PyImport_ImportModule("uuid");
+    if (!uuid)
+        goto error;
+    _CBOAR_UUID = PyObject_GetAttr(uuid, _CBOAR_str_UUID);
+    Py_DECREF(uuid);
+    if (!_CBOAR_UUID)
+        goto error;
+    return 0;
+error:
+    PyErr_SetString(PyExc_ImportError, "unable to import UUID from uuid");
+    return -1;
+}
+
+
+int
+_CBOAR_init_re_compile(void)
+{
+    PyObject *re;
+
+    // import re
+    // datestr_re = re.compile("long-date-time-regex...")
+    re = PyImport_ImportModule("re");
+    if (!re)
+        goto error;
+    _CBOAR_re_compile = PyObject_GetAttr(re, _CBOAR_str_compile);
+    Py_DECREF(re);
+    if (!_CBOAR_re_compile)
+        goto error;
+    _CBOAR_datestr_re = PyObject_CallFunctionObjArgs(
+            _CBOAR_re_compile, _CBOAR_str_datestr_re, NULL);
+    if (!_CBOAR_datestr_re)
+        goto error;
+    return 0;
+error:
+    PyErr_SetString(PyExc_ImportError, "unable to import compile from re");
+    return -1;
+}
+
+
+int
+_CBOAR_init_timezone_utc(void)
+{
+    PyObject *datetime;
+
+#if PY_MAJOR_VERSION > 3 || PY_MINOR_VERSION >= 7
+    Py_INCREF(PyDateTime_TimeZone_UTC);
+    _CBOAR_timezone_utc = PyDateTime_TimeZone_UTC;
+    _CBOAR_timezone = NULL;
+#else
+    // from datetime import timezone
+    // utc = timezone.utc
+    datetime = PyImport_ImportModule("datetime");
+    if (!datetime)
+        goto error;
+    _CBOAR_timezone = PyObject_GetAttr(datetime, _CBOAR_str_timezone);
+    Py_DECREF(datetime);
+    if (!_CBOAR_timezone)
+        goto error;
+    _CBOAR_timezone_utc = PyObject_GetAttr(_CBOAR_timezone, _CBOAR_str_utc);
+    if (!_CBOAR_timezone_utc)
+        goto error;
+#endif
+    return 0;
+error:
+    PyErr_SetString(PyExc_ImportError, "unable to import timezone from datetime");
+    return -1;
+}
+
+
 // Module definition /////////////////////////////////////////////////////////
 
 PyObject *_CBOAR_empty_bytes = NULL;
@@ -204,18 +342,17 @@ PyObject *_CBOAR_str_timestamp = NULL;
 PyObject *_CBOAR_str_timezone = NULL;
 PyObject *_CBOAR_str_utc = NULL;
 PyObject *_CBOAR_str_utc_suffix = NULL;
+PyObject *_CBOAR_str_UUID = NULL;
 PyObject *_CBOAR_str_write = NULL;
 
-// NOTE: The following globals are defined here, and cleaned up in cboar_free
-// below but they're initialized on-demand by the various methods that need
-// them (e.g. in Decoder.decode_datestr, Encoder.__new__, etc.)
-PyObject *_CBOAR_timezone = NULL;      // datetime.timezone
-PyObject *_CBOAR_timezone_utc = NULL;  // datetime.timezone.utc
-PyObject *_CBOAR_OrderedDict = NULL;   // collections.OrderedDict
-PyObject *_CBOAR_Decimal = NULL;       // decimal.Decimal
-PyObject *_CBOAR_Fraction = NULL;      // fractions.Fraction
-PyObject *_CBOAR_re_compile = NULL;    // re.compile
-PyObject *_CBOAR_datestr_re = NULL;    // re.compile(datestr_re)
+PyObject *_CBOAR_timezone = NULL;
+PyObject *_CBOAR_timezone_utc = NULL;
+PyObject *_CBOAR_OrderedDict = NULL;
+PyObject *_CBOAR_Decimal = NULL;
+PyObject *_CBOAR_Fraction = NULL;
+PyObject *_CBOAR_UUID = NULL;
+PyObject *_CBOAR_re_compile = NULL;
+PyObject *_CBOAR_datestr_re = NULL;
 
 static void
 cboar_free(PyObject *m)
@@ -225,6 +362,7 @@ cboar_free(PyObject *m)
     Py_CLEAR(_CBOAR_OrderedDict);
     Py_CLEAR(_CBOAR_Decimal);
     Py_CLEAR(_CBOAR_Fraction);
+    Py_CLEAR(_CBOAR_UUID);
     Py_CLEAR(_CBOAR_re_compile);
     Py_CLEAR(_CBOAR_datestr_re);
 }
@@ -308,6 +446,7 @@ PyInit__cboar(void)
     INTERN_STRING(timestamp);
     INTERN_STRING(timezone);
     INTERN_STRING(utc);
+    INTERN_STRING(UUID);
     INTERN_STRING(write);
 
 #undef INTERN_STRING
