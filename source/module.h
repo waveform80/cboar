@@ -39,6 +39,8 @@ extern PyObject *_CBOAR_str_join;
 extern PyObject *_CBOAR_str_match;
 extern PyObject *_CBOAR_str_numerator;
 extern PyObject *_CBOAR_str_OrderedDict;
+extern PyObject *_CBOAR_str_Parser;
+extern PyObject *_CBOAR_str_parsestr;
 extern PyObject *_CBOAR_str_pattern;
 extern PyObject *_CBOAR_str_read;
 extern PyObject *_CBOAR_str_timestamp;
@@ -55,6 +57,7 @@ extern PyObject *_CBOAR_OrderedDict;
 extern PyObject *_CBOAR_Decimal;
 extern PyObject *_CBOAR_Fraction;
 extern PyObject *_CBOAR_UUID;
+extern PyObject *_CBOAR_Parser;
 extern PyObject *_CBOAR_re_compile;
 extern PyObject *_CBOAR_datestr_re;
 
@@ -64,4 +67,5 @@ int _CBOAR_init_OrderedDict(void);
 int _CBOAR_init_Decimal(void);
 int _CBOAR_init_Fraction(void);
 int _CBOAR_init_UUID(void);
+int _CBOAR_init_Parser(void);
 int _CBOAR_init_re_compile(void); // also handles datestr_re

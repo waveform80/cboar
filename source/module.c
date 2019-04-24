@@ -313,6 +313,26 @@ error:
     return -1;
 }
 
+
+int
+_CBOAR_init_Parser(void)
+{
+    PyObject *parser;
+
+    // from email.parser import Parser
+    parser = PyImport_ImportModule("email.parser");
+    if (!parser)
+        goto error;
+    _CBOAR_Parser = PyObject_GetAttr(parser, _CBOAR_str_Parser);
+    Py_DECREF(parser);
+    if (!_CBOAR_Parser)
+        goto error;
+    return 0;
+error:
+    PyErr_SetString(PyExc_ImportError, "unable to import Parser from email.parser");
+    return -1;
+}
+
 
 // Module definition /////////////////////////////////////////////////////////
 
@@ -336,6 +356,8 @@ PyObject *_CBOAR_str_join = NULL;
 PyObject *_CBOAR_str_match = NULL;
 PyObject *_CBOAR_str_numerator = NULL;
 PyObject *_CBOAR_str_OrderedDict = NULL;
+PyObject *_CBOAR_str_Parser = NULL;
+PyObject *_CBOAR_str_parsestr = NULL;
 PyObject *_CBOAR_str_pattern = NULL;
 PyObject *_CBOAR_str_read = NULL;
 PyObject *_CBOAR_str_timestamp = NULL;
@@ -351,6 +373,7 @@ PyObject *_CBOAR_OrderedDict = NULL;
 PyObject *_CBOAR_Decimal = NULL;
 PyObject *_CBOAR_Fraction = NULL;
 PyObject *_CBOAR_UUID = NULL;
+PyObject *_CBOAR_Parser = NULL;
 PyObject *_CBOAR_re_compile = NULL;
 PyObject *_CBOAR_datestr_re = NULL;
 
@@ -363,6 +386,7 @@ cboar_free(PyObject *m)
     Py_CLEAR(_CBOAR_Decimal);
     Py_CLEAR(_CBOAR_Fraction);
     Py_CLEAR(_CBOAR_UUID);
+    Py_CLEAR(_CBOAR_Parser);
     Py_CLEAR(_CBOAR_re_compile);
     Py_CLEAR(_CBOAR_datestr_re);
 }
@@ -441,6 +465,8 @@ PyInit__cboar(void)
     INTERN_STRING(match);
     INTERN_STRING(numerator);
     INTERN_STRING(OrderedDict);
+    INTERN_STRING(Parser);
+    INTERN_STRING(parsestr);
     INTERN_STRING(pattern);
     INTERN_STRING(read);
     INTERN_STRING(timestamp);
