@@ -59,6 +59,15 @@ class CBOREncoder(Encoder):
         if canonical:
             self.encoders.update(canonical_encoders)
 
+    def encode_to_bytes(self, obj):
+        old_fp = self.fp
+        self.fp = fp = io.BytesIO()
+        try:
+            self.encode(obj)
+        finally:
+            self.fp = old_fp
+        return fp.getvalue()
+
 
 class CBORDecoder(Decoder):
     def __init__(self, fp, tag_hook=None, object_hook=None, str_errors='strict'):
