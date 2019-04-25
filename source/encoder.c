@@ -8,6 +8,7 @@
 #include <structmember.h>
 #include <datetime.h>
 #include "module.h"
+#include "tags.h"
 #include "encoder.h"
 
 
@@ -443,16 +444,16 @@ Encoder_encode_length(EncoderObject *self, PyObject *args)
 }
 
 
-// Encoder.encode_semantic(self, (tag, value))
+// Encoder.encode_semantic(self, tag)
 static PyObject *
-Encoder_encode_semantic(EncoderObject *self, PyObject *args)
+Encoder_encode_semantic(EncoderObject *self, PyObject *value)
 {
-    uint64_t tag;
-    PyObject *value;
+    TagObject *tag;
 
-    if (!PyArg_ParseTuple(args, "KO", &tag, &value))
+    if (!Tag_CheckExact(value))
         return NULL;
-    if (Encoder__encode_semantic(self, tag, value) == -1)
+    tag = (TagObject *) value;
+    if (Encoder__encode_semantic(self, tag->tag, tag->value) == -1)
         return NULL;
     Py_RETURN_NONE;
 }
@@ -1191,7 +1192,8 @@ Encoder_encode(EncoderObject *self, PyObject *value)
                 ret = PyObject_CallFunctionObjArgs(
                         self->default_handler, self, value, NULL);
             else
-                PyErr_SetObject(PyExc_ValueError, (PyObject *)Py_TYPE(value));
+                PyErr_Format(PyExc_ValueError, "cannot serialize type %R",
+                        (PyObject *)Py_TYPE(value));
             Py_DECREF(encoder);
         }
     }

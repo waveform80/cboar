@@ -248,12 +248,11 @@ def test_default_cyclic():
         def __init__(self, value=None):
             self.value = value
 
-    @shareable_encoder
     def default_encoder(encoder, value):
         state = encoder.encode_to_bytes(value.value)
         encoder.encode(CBORTag(3000, state))
 
-    expected = unhexlify('D81CD90BB849D81CD90BB843D81D00')
+    expected = unhexlify('d81cd90bb849d81cd90bb843d81d00')
     obj = DummyType()
     obj2 = DummyType(obj)
     obj.value = obj2
