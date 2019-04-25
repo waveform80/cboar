@@ -306,10 +306,10 @@ Decoder__read(DecoderObject *self, char *buf, const uint64_t size)
 }
 
 
-static void
+static inline void
 Decoder__set_shareable(DecoderObject *self, PyObject *value)
 {
-    if (self->shared_index != -1) {
+    if (value && self->shared_index != -1) {
         Py_INCREF(value);  // PyList_SetItem "steals" reference
         // TODO use weakrefs? or explicitly empty list?
 #ifndef NDEBUG
@@ -386,8 +386,7 @@ Decoder__decode_uint(DecoderObject *self, uint8_t subtype)
     if (Decoder__decode_length(self, subtype, &length, NULL) == -1)
         return NULL;
     ret = PyLong_FromUnsignedLongLong(length);
-    if (ret)
-        Decoder__set_shareable(self, ret);
+    Decoder__set_shareable(self, ret);
     return ret;
 }
 
@@ -407,8 +406,7 @@ Decoder__decode_negint(DecoderObject *self, uint8_t subtype)
                 Py_DECREF(value);
                 value = ret;
                 ret = PyNumber_Subtract(value, one);
-                if (ret)
-                    Decoder__set_shareable(self, ret);
+                Decoder__set_shareable(self, ret);
             }
             Py_DECREF(one);
         }
@@ -485,8 +483,7 @@ Decoder__decode_bytestring(DecoderObject *self, uint8_t subtype)
         ret = Decoder__decode_indefinite_bytestrings(self);
     else
         ret = Decoder__decode_definite_bytestring(self, length);
-    if (ret)
-        Decoder__set_shareable(self, ret);
+    Decoder__set_shareable(self, ret);
     return ret;
 }
 
@@ -573,8 +570,7 @@ Decoder__decode_string(DecoderObject *self, uint8_t subtype)
         ret = Decoder__decode_indefinite_strings(self);
     else
         ret = Decoder__decode_definite_string(self, length);
-    if (ret)
-        Decoder__set_shareable(self, ret);
+    Decoder__set_shareable(self, ret);
     return ret;
 }
 
@@ -648,8 +644,7 @@ Decoder__decode_definite_array(DecoderObject *self, uint64_t length)
         // contain a reference to itself (because a reference to it can't exist
         // during its own construction ... in Python at least; as can be seen
         // above this *is* theoretically possible at the C level).
-        if (ret)
-            Decoder__set_shareable(self, ret);
+        Decoder__set_shareable(self, ret);
     } else {
         array = PyList_New(length);
         if (array) {
@@ -796,8 +791,7 @@ Decoder__decode_semantic(DecoderObject *self, uint8_t subtype)
                             } else {
                                 ret = PyObject_CallFunctionObjArgs(
                                         self->tag_hook, self, tag, NULL);
-                                if (ret)
-                                    Decoder__set_shareable(self, ret);
+                                Decoder__set_shareable(self, ret);
                             }
                         }
                         Py_DECREF(value);
@@ -902,8 +896,7 @@ Decoder_decode_datestr(DecoderObject *self)
             PyErr_Format(PyExc_ValueError, "invalid datetime value %R", str);
         Py_DECREF(str);
     }
-    if (ret)
-        Decoder__set_shareable(self, ret);
+    Decoder__set_shareable(self, ret);
     return ret;
 }
 
@@ -930,8 +923,7 @@ Decoder_decode_timestamp(DecoderObject *self)
         }
         Py_DECREF(num);
     }
-    if (ret)
-        Decoder__set_shareable(self, ret);
+    Decoder__set_shareable(self, ret);
     return ret;
 }
 
@@ -952,8 +944,7 @@ Decoder_decode_positive_bignum(DecoderObject *self)
             PyErr_Format(PyExc_ValueError, "invalid bignum value %R", bytes);
         Py_DECREF(bytes);
     }
-    if (ret)
-        Decoder__set_shareable(self, ret);
+    Decoder__set_shareable(self, ret);
     return ret;
 }
 
@@ -977,8 +968,7 @@ Decoder_decode_negative_bignum(DecoderObject *self)
         }
         Py_DECREF(value);
     }
-    if (ret)
-        Decoder__set_shareable(self, ret);
+    Decoder__set_shareable(self, ret);
     return ret;
 }
 
@@ -1010,8 +1000,7 @@ Decoder_decode_fraction(DecoderObject *self)
         }
         Py_DECREF(tuple);
     }
-    if (ret)
-        Decoder__set_shareable(self, ret);
+    Decoder__set_shareable(self, ret);
     return ret;
 }
 
@@ -1042,8 +1031,7 @@ Decoder_decode_bigfloat(DecoderObject *self)
         }
         Py_DECREF(tuple);
     }
-    if (ret)
-        Decoder__set_shareable(self, ret);
+    Decoder__set_shareable(self, ret);
     return ret;
 }
 
@@ -1118,8 +1106,7 @@ Decoder_decode_rational(DecoderObject *self)
         }
         Py_DECREF(tuple);
     }
-    if (ret)
-        Decoder__set_shareable(self, ret);
+    Decoder__set_shareable(self, ret);
     return ret;
 }
 
@@ -1138,8 +1125,7 @@ Decoder_decode_regexp(DecoderObject *self)
         ret = PyObject_CallFunctionObjArgs(_CBOAR_re_compile, pattern, NULL);
         Py_DECREF(pattern);
     }
-    if (ret)
-        Decoder__set_shareable(self, ret);
+    Decoder__set_shareable(self, ret);
     return ret;
 }
 
@@ -1163,8 +1149,7 @@ Decoder_decode_mime(DecoderObject *self)
         }
         Py_DECREF(value);
     }
-    if (ret)
-        Decoder__set_shareable(self, ret);
+    Decoder__set_shareable(self, ret);
     return ret;
 }
 
@@ -1183,8 +1168,7 @@ Decoder_decode_uuid(DecoderObject *self)
         ret = PyObject_CallFunctionObjArgs(_CBOAR_UUID, Py_None, bytes, NULL);
         Py_DECREF(bytes);
     }
-    if (ret)
-        Decoder__set_shareable(self, ret);
+    Decoder__set_shareable(self, ret);
     return ret;
 }
 
@@ -1211,8 +1195,7 @@ Decoder_decode_set(DecoderObject *self)
     // unlike lists/dicts a set cannot contain a reference to itself (a set
     // is unhashable). Nor can a frozenset contain a reference to itself
     // because it can't refer to itself during its own construction.
-    if (ret)
-        Decoder__set_shareable(self, ret);
+    Decoder__set_shareable(self, ret);
     return ret;
 }
 
@@ -1289,8 +1272,7 @@ Decoder_decode_float16(DecoderObject *self)
 
     if (Decoder__read(self, u.buf, sizeof(uint16_t)) == 0)
         ret = PyFloat_FromDouble(read_float16(u.i));
-    if (ret)
-        Decoder__set_shareable(self, ret);
+    Decoder__set_shareable(self, ret);
     return ret;
 }
 
@@ -1309,8 +1291,7 @@ Decoder_decode_float32(DecoderObject *self)
         u.i = be32toh(u.i);
         ret = PyFloat_FromDouble((double)u.f);
     }
-    if (ret)
-        Decoder__set_shareable(self, ret);
+    Decoder__set_shareable(self, ret);
     return ret;
 }
 
@@ -1329,8 +1310,7 @@ Decoder_decode_float64(DecoderObject *self)
         u.i = be64toh(u.i);
         ret = PyFloat_FromDouble(u.f);
     }
-    if (ret)
-        Decoder__set_shareable(self, ret);
+    Decoder__set_shareable(self, ret);
     return ret;
 }
 
