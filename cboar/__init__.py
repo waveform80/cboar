@@ -1,5 +1,6 @@
 import io
 import re
+from functools import wraps
 from collections import defaultdict, OrderedDict, namedtuple
 from datetime import datetime, date
 
@@ -48,6 +49,13 @@ default_encoders = [
 canonical_encoders = [
     # TODO
 ]
+
+
+def shareable_encoder(func):
+    @wraps(func)
+    def wrapper(encoder, value):
+        encoder.encode_shared(func, value)
+    return wrapper
 
 
 class CBOREncoder(Encoder):

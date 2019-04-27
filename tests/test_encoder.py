@@ -10,7 +10,7 @@ from uuid import UUID
 
 import pytest
 
-from cboar import dumps, dump, undefined, CBORTag, CBORSimpleValue
+from cboar import dumps, dump, undefined, CBORTag, CBORSimpleValue, shareable_encoder
 
 
 @pytest.mark.parametrize('value, expected', [
@@ -248,6 +248,7 @@ def test_default_cyclic():
         def __init__(self, value=None):
             self.value = value
 
+    @shareable_encoder
     def default_encoder(encoder, value):
         state = encoder.encode_to_bytes(value.value)
         encoder.encode(CBORTag(3000, state))

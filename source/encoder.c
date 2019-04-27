@@ -33,6 +33,7 @@ Encoder_dealloc(EncoderObject *self)
     Py_XDECREF(self->default_handler);
     Py_XDECREF(self->shared);
     Py_XDECREF(self->timezone);
+    Py_XDECREF(self->shared_handler);
     Py_TYPE(self)->tp_free((PyObject *) self);
 }
 
@@ -66,6 +67,7 @@ Encoder_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
         self->timezone = Py_None;
         self->timestamp_format = false;
         self->value_sharing = false;
+        self->shared_handler = NULL;
     }
     return (PyObject *) self;
 error:
@@ -446,6 +448,36 @@ Encoder__encode_shared(EncoderObject *self, EncodeFunction *encoder,
 }
 
 
+static PyObject *
+shared_callback(EncoderObject *self, PyObject *value)
+{
+    if (PyCallable_Check(self->shared_handler)) {
+        return PyObject_CallFunctionObjArgs(
+                self->shared_handler, self, value, NULL);
+    } else {
+        PyErr_Format(PyExc_ValueError,
+                "non-callable passed as shared encoding method");
+        return NULL;
+    }
+}
+
+
+// Encoder.encode_shared(self, encode_method, value)
+static PyObject *
+Encoder_encode_shared(EncoderObject *self, PyObject *args)
+{
+    PyObject *method, *value, *tmp, *ret = NULL;
+
+    if (PyArg_ParseTuple(args, "OO", &method, &value)) {
+        Py_INCREF(method);
+        tmp = self->shared_handler;
+        self->shared_handler = method;
+        ret = Encoder__encode_shared(self, &shared_callback, value);
+        self->shared_handler = tmp;
+        Py_DECREF(method);
+    }
+    return ret;
+}
 
 
 // Encoder.encode_semantic(self, tag)
@@ -1288,6 +1320,8 @@ static PyMethodDef Encoder_methods[] = {
         "encode the specified UUID to the output"},
     {"encode_set", (PyCFunction) Encoder_encode_set, METH_O,
         "encode the specified set to the output"},
+    {"encode_shared", (PyCFunction) Encoder_encode_shared, METH_VARARGS,
+        "encode the specified CBORTag to the output"},
     {"find_encoder", (PyCFunction) Encoder_find_encoder, METH_O,
         "find an encoding function for the specified type"},
     {NULL}

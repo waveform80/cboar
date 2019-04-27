@@ -9,6 +9,7 @@ typedef struct {
     PyObject *default_handler;
     PyObject *shared;
     PyObject *timezone;
+    PyObject *shared_handler;
     bool timestamp_format;
     bool value_sharing;
 } EncoderObject;
