@@ -225,6 +225,10 @@ Encoder__write(EncoderObject *self, const char *buf, const int length)
 }
 
 
+// Given a deferred type tuple (module-name, type-name), import the specified
+// module, get the specified type from within it and return it as a new
+// reference. Returns NULL and sets an appropriate error if the module cannot
+// be imported or the specified type cannot be found within it
 static PyObject *
 Encoder__load_type(PyObject *type_tuple)
 {
@@ -257,6 +261,9 @@ Encoder__load_type(PyObject *type_tuple)
 }
 
 
+// Given a deferred type item tuple from the self->encoders dictionary, attempt
+// to load the specified type (by calling Encoder__load_type) and replace the
+// entry in the dictionary with the loaded type, mapping to the same handler
 static PyObject *
 Encoder__replace_type(EncoderObject *self, PyObject *item)
 {
@@ -285,7 +292,7 @@ Encoder__replace_type(EncoderObject *self, PyObject *item)
 
 // Encoder._find_encoder(type)
 static PyObject *
-Encoder__find_encoder(EncoderObject *self, PyObject *type)
+Encoder_find_encoder(EncoderObject *self, PyObject *type)
 {
     PyObject *enc_type, *items, *iter, *item, *ret;
 
@@ -361,6 +368,21 @@ Encoder__encode_length(EncoderObject *self, const uint8_t major_tag,
 }
 
 
+// Encoder.encode_length(self, major_tag, length)
+static PyObject *
+Encoder_encode_length(EncoderObject *self, PyObject *args)
+{
+    uint8_t major_tag;
+    uint64_t length;
+
+    if (!PyArg_ParseTuple(args, "BK", &major_tag, &length))
+        return NULL;
+    if (Encoder__encode_length(self, major_tag, length) == -1)
+        return NULL;
+    Py_RETURN_NONE;
+}
+
+
 static int
 Encoder__encode_semantic(EncoderObject *self, const uint64_t tag,
                          PyObject *value)
@@ -380,20 +402,15 @@ static PyObject *
 Encoder__encode_shared(EncoderObject *self, EncodeFunction *encoder,
                        PyObject *value)
 {
-    PyObject *id, *container, *index, *tuple, *ret = NULL;
+    PyObject *id, *index, *tuple, *ret = NULL;
 
     id = PyLong_FromVoidPtr(value);
     if (id) {
         tuple = PyDict_GetItem(self->shared, id);
-        if (tuple) {
-            container = PyTuple_GET_ITEM(tuple, 0);
-            index = PyTuple_GET_ITEM(tuple, 1);
-        }
         if (self->value_sharing) {
-            // XXX Do we need to test container == value? I'm not sure...
-            if (tuple && container == value) {
+            if (tuple) {
                 if (Encoder__encode_length(self, 0xD8, 0x1D) == 0)
-                    ret = Encoder_encode_int(self, index);
+                    ret = Encoder_encode_int(self, PyTuple_GET_ITEM(tuple, 1));
             } else {
                 index = PyLong_FromSsize_t(PyDict_Size(self->shared));
                 if (index) {
@@ -408,7 +425,7 @@ Encoder__encode_shared(EncoderObject *self, EncodeFunction *encoder,
                 }
             }
         } else {
-            if (tuple && container == value) {
+            if (tuple) {
                 PyErr_SetString(PyExc_ValueError,
                                 "cyclic data structure detected but "
                                 "value_sharing is False");
@@ -429,19 +446,6 @@ Encoder__encode_shared(EncoderObject *self, EncodeFunction *encoder,
 }
 
 
-// Encoder.encode_length(self, major_tag, length)
-static PyObject *
-Encoder_encode_length(EncoderObject *self, PyObject *args)
-{
-    uint8_t major_tag;
-    uint64_t length;
-
-    if (!PyArg_ParseTuple(args, "BK", &major_tag, &length))
-        return NULL;
-    if (Encoder__encode_length(self, major_tag, length) == -1)
-        return NULL;
-    Py_RETURN_NONE;
-}
 
 
 // Encoder.encode_semantic(self, tag)
@@ -653,33 +657,97 @@ Encoder_encode_float(EncoderObject *self, PyObject *value)
 }
 
 
+static PyObject *
+Encoder__encode_decimal_digits(EncoderObject *self, PyObject *args)
+{
+    PyObject *digits, *exp, *sig, *ten, *tmp, *ret = NULL;
+    bool sign, sharing;
+
+    if (PyArg_ParseTuple(args, "pO!O!", &sign,
+                &PyTuple_Type, &digits, &PyLong_Type, &exp)) {
+        sig = PyLong_FromLong(0);
+        if (sig) {
+            ten = PyLong_FromLong(10);
+            if (ten) {
+                Py_ssize_t length = PyTuple_GET_SIZE(digits);
+                // for digit in digits: sig = (sig * 10) + digit
+                for (Py_ssize_t i = 0; i < length; ++i) {
+                    tmp = PyNumber_Multiply(sig, ten);
+                    if (!tmp)
+                        break;
+                    Py_DECREF(sig);
+                    sig = tmp;
+                    tmp = PyNumber_Add(sig, PyTuple_GET_ITEM(digits, i));
+                    if (!tmp)
+                        break;
+                    Py_DECREF(sig);
+                    sig = tmp;
+                }
+                Py_DECREF(ten);
+                // if sign: sig = -sig
+                if (tmp && sign) {
+                    tmp = PyNumber_Negative(sig);
+                    if (tmp) {
+                        Py_DECREF(sig);
+                        sig = tmp;
+                    }
+                }
+                if (tmp) {
+                    sharing = self->value_sharing;
+                    self->value_sharing = false;
+                    args = PyTuple_Pack(2, exp, sig);
+                    if (args) {
+                        if (Encoder__encode_semantic(self, 4, args) == 0) {
+                            Py_INCREF(Py_None);
+                            ret = Py_None;
+                        }
+                        Py_DECREF(args);
+                    }
+                    self->value_sharing = sharing;
+                }
+            }
+            Py_DECREF(sig);
+        }
+    }
+    return ret;
+}
+
+
 // Encoder.encode_decimal(self, value)
 static PyObject *
 Encoder_encode_decimal(EncoderObject *self, PyObject *value)
 {
-    PyObject *tmp, *zero, *ret = NULL;
+    PyObject *tmp, *tuple, *zero, *ret = NULL;
 
     tmp = PyObject_CallMethodObjArgs(value, _CBOAR_str_is_nan, NULL);
     if (tmp) {
+        // NaN case
         if (PyObject_IsTrue(tmp))
-            if (Encoder__write(self, "\xF9\x7E\x00", 3) == 0)
+            if (Encoder__write(self, "\xF9\x7E\x00", 3) == 0) {
+                Py_INCREF(Py_None);
                 ret = Py_None;
+            }
         Py_DECREF(tmp);
     }
     if (!ret) {
         tmp = PyObject_CallMethodObjArgs(value, _CBOAR_str_is_infinite, NULL);
         if (tmp) {
+            // Infinite case
             if (PyObject_IsTrue(tmp)) {
                 zero = PyLong_FromLong(0);
                 if (zero) {
                     switch (PyObject_RichCompareBool(value, zero, Py_GT)) {
                         case 1:
-                            if (Encoder__write(self, "\xF9\x7C\x00", 3) == 0)
+                            if (Encoder__write(self, "\xF9\x7C\x00", 3) == 0) {
+                                Py_INCREF(Py_None);
                                 ret = Py_None;
+                            }
                             break;
                         case 0:
-                            if (Encoder__write(self, "\xF9\xFC\x00", 3) == 0)
+                            if (Encoder__write(self, "\xF9\xFC\x00", 3) == 0) {
+                                Py_INCREF(Py_None);
                                 ret = Py_None;
+                            }
                             break;
                     }
                     Py_DECREF(zero);
@@ -689,58 +757,13 @@ Encoder_encode_decimal(EncoderObject *self, PyObject *value)
         }
     }
     if (!ret) {
-        PyObject *tuple = PyObject_CallMethodObjArgs(
-                value, _CBOAR_str_as_tuple, NULL);
+        tuple = PyObject_CallMethodObjArgs(value, _CBOAR_str_as_tuple, NULL);
         if (tuple) {
-            bool sign;
-            PyObject *digits, *exponent;
-            if (PyArg_ParseTuple(tuple, "pO!O!", &sign,
-                        &PyTuple_Type, &digits, &PyLong_Type, &exponent)) {
-                PyObject *mantissa = PyLong_FromLong(0);
-                if (mantissa) {
-                    PyObject *ten = PyLong_FromLong(10);
-                    if (ten) {
-                        Py_ssize_t length = PyTuple_GET_SIZE(digits);
-                        for (Py_ssize_t i = 0; i < length; ++i) {
-                            tmp = PyNumber_Multiply(mantissa, ten);
-                            if (!tmp)
-                                break;
-                            Py_DECREF(mantissa);
-                            mantissa = tmp;
-                            tmp = PyNumber_Add(mantissa, PyTuple_GET_ITEM(digits, i));
-                            if (!tmp)
-                                break;
-                            Py_DECREF(mantissa);
-                            mantissa = tmp;
-                        }
-                        Py_DECREF(ten);
-                        if (tmp && sign) {
-                            tmp = PyNumber_Negative(mantissa);
-                            if (tmp) {
-                                Py_DECREF(mantissa);
-                                mantissa = tmp;
-                            }
-                        }
-                        if (tmp) {
-                            PyObject *args;
-                            bool sharing = self->value_sharing;
-                            self->value_sharing = false;
-                            args = PyTuple_Pack(2, exponent, mantissa);
-                            if (args) {
-                                if (Encoder__encode_semantic(self, 4, args) == 0)
-                                    ret = Py_None;
-                                Py_DECREF(args);
-                            }
-                            self->value_sharing = sharing;
-                        }
-                    }
-                    Py_DECREF(mantissa);
-                }
-            }
+            // Regular case
+            ret = Encoder__encode_decimal_digits(self, tuple);
             Py_DECREF(tuple);
         }
     }
-    Py_XINCREF(ret);
     return ret;
 }
 
@@ -932,6 +955,7 @@ static PyObject *
 Encoder_encode_rational(EncoderObject *self, PyObject *value)
 {
     PyObject *tuple, *num, *den, *ret = NULL;
+    bool sharing;
 
     num = PyObject_GetAttr(value, _CBOAR_str_numerator);
     if (num) {
@@ -939,7 +963,7 @@ Encoder_encode_rational(EncoderObject *self, PyObject *value)
         if (den) {
             tuple = PyTuple_Pack(2, num, den);
             if (tuple) {
-                bool sharing = self->value_sharing;
+                sharing = self->value_sharing;
                 self->value_sharing = false;
                 if (Encoder__encode_semantic(self, 30, tuple) == 0)
                     ret = Py_None;
@@ -1009,12 +1033,13 @@ Encoder_encode_uuid(EncoderObject *self, PyObject *value)
 static PyObject *
 Encoder__encode_array(EncoderObject *self, PyObject *value)
 {
-    PyObject *f, *ret = NULL;
+    PyObject **items, *fast, *ret = NULL;
+    Py_ssize_t length;
 
-    f = PySequence_Fast(value, "argument must be iterable");
-    if (f) {
-        Py_ssize_t length = PySequence_Fast_GET_SIZE(f);
-        PyObject **items = PySequence_Fast_ITEMS(f);
+    fast = PySequence_Fast(value, "argument must be iterable");
+    if (fast) {
+        length = PySequence_Fast_GET_SIZE(fast);
+        items = PySequence_Fast_ITEMS(fast);
         if (Encoder__encode_length(self, 0x80, length) == 0) {
             while (length) {
                 // XXX Recursion
@@ -1027,7 +1052,7 @@ Encoder__encode_array(EncoderObject *self, PyObject *value)
             Py_INCREF(ret);
         }
 error:
-        Py_DECREF(f);
+        Py_DECREF(fast);
     }
     return ret;
 }
@@ -1044,12 +1069,11 @@ Encoder_encode_array(EncoderObject *self, PyObject *value)
 static PyObject *
 Encoder__encode_map(EncoderObject *self, PyObject *value)
 {
-    PyObject *ret = NULL;
+    PyObject **items, *fast, *list, *key, *val, *ret = NULL;
+    Py_ssize_t length, pos = 0;
 
     if (PyDict_Check(value)) {
         if (Encoder__encode_length(self, 0xA0, PyDict_Size(value)) == 0) {
-            PyObject *key, *val;
-            Py_ssize_t pos = 0;
 
             while (PyDict_Next(value, &pos, &key, &val)) {
                 // XXX Recursion
@@ -1062,16 +1086,12 @@ Encoder__encode_map(EncoderObject *self, PyObject *value)
             Py_INCREF(ret);
         }
     } else {
-        PyObject *list;
-
         list = PyMapping_Items(value);
         if (list) {
-            PyObject *f;
-
-            f = PySequence_Fast(list, "internal error");
-            if (f) {
-                Py_ssize_t length = PySequence_Fast_GET_SIZE(f);
-                PyObject **items = PySequence_Fast_ITEMS(f);
+            fast = PySequence_Fast(list, "internal error");
+            if (fast) {
+                length = PySequence_Fast_GET_SIZE(fast);
+                items = PySequence_Fast_ITEMS(fast);
                 if (Encoder__encode_length(self, 0xA0, length) == 0) {
                     while (length) {
                         // XXX Recursion
@@ -1086,7 +1106,7 @@ Encoder__encode_map(EncoderObject *self, PyObject *value)
                     Py_INCREF(ret);
                 }
 error:
-                Py_DECREF(f);
+                Py_DECREF(fast);
             }
             Py_DECREF(list);
         }
@@ -1107,16 +1127,14 @@ static PyObject *
 Encoder__encode_set(EncoderObject *self, PyObject *value)
 {
     Py_ssize_t length;
-    PyObject *ret = NULL;
+    PyObject *iter, *item, *ret = NULL;
 
     length = PySet_Size(value);
     if (length != -1) {
-        PyObject *iter = PyObject_GetIter(value);
+        iter = PyObject_GetIter(value);
         if (iter) {
             if (Encoder__encode_length(self, 0xC0, 258) == 0) {
                 if (Encoder__encode_length(self, 0x80, length) == 0) {
-                    PyObject *item;
-
                     while ((item = PyIter_Next(iter))) {
                         // XXX Recursion
                         if (!Encoder_encode(self, item)) {
@@ -1153,6 +1171,8 @@ Encoder_encode(EncoderObject *self, PyObject *value)
 {
     PyObject *encoder, *ret = NULL;
 
+    // TODO reset shared dict?
+
     // Fast-path checks; these effectively override the contents of the
     // encoders dict (so replacing the encoder mapping for, e.g. "int" won't
     // affect which method is called) but then the primary purpose for this
@@ -1183,7 +1203,7 @@ Encoder_encode(EncoderObject *self, PyObject *value)
     else if (PyDate_CheckExact(value))
         return Encoder_encode_date(self, value);
     else {
-        encoder = Encoder__find_encoder(self, (PyObject *)Py_TYPE(value));
+        encoder = Encoder_find_encoder(self, (PyObject *)Py_TYPE(value));
         if (encoder) {
             if (encoder != Py_None)
                 ret = PyObject_CallFunctionObjArgs(
@@ -1224,12 +1244,10 @@ static PyGetSetDef Encoder_getsetters[] = {
 };
 
 static PyMethodDef Encoder_methods[] = {
-    {"_find_encoder", (PyCFunction) Encoder__find_encoder, METH_O,
-        "find an encoding function for the specified type"},
-    {"encode_length", (PyCFunction) Encoder_encode_length, METH_VARARGS,
-        "encode the specified *major_tag* with the specified *length* to the output"},
     {"encode", (PyCFunction) Encoder_encode, METH_O,
         "encode the specified *value* to the output"},
+    {"encode_length", (PyCFunction) Encoder_encode_length, METH_VARARGS,
+        "encode the specified *major_tag* with the specified *length* to the output"},
     {"encode_int", (PyCFunction) Encoder_encode_int, METH_O,
         "encode the specified integer *value* to the output"},
     {"encode_float", (PyCFunction) Encoder_encode_float, METH_O,
@@ -1270,6 +1288,8 @@ static PyMethodDef Encoder_methods[] = {
         "encode the specified UUID to the output"},
     {"encode_set", (PyCFunction) Encoder_encode_set, METH_O,
         "encode the specified set to the output"},
+    {"find_encoder", (PyCFunction) Encoder_find_encoder, METH_O,
+        "find an encoding function for the specified type"},
     {NULL}
 };
 

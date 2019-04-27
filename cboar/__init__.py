@@ -84,9 +84,9 @@ class CBORDecoder(Decoder):
 
 
 def dumps(obj, **kwargs):
-    fp = io.BytesIO()
-    dump(obj, fp, **kwargs)
-    return fp.getvalue()
+    with io.BytesIO() as fp:
+        dump(obj, fp, **kwargs)
+        return fp.getvalue()
 
 
 def dump(obj, fp, **kwargs):
@@ -94,8 +94,8 @@ def dump(obj, fp, **kwargs):
 
 
 def loads(buf, **kwargs):
-    fp = io.BytesIO(buf)
-    return load(fp, **kwargs)
+    with io.BytesIO(buf) as fp:
+        return load(fp, **kwargs)
 
 
 def load(fp, **kwargs):

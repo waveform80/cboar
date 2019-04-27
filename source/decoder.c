@@ -321,6 +321,7 @@ Decoder__set_shareable(DecoderObject *self, PyObject *value)
 }
 
 
+// Decoder.set_shareable(self, value)
 static PyObject *
 Decoder_set_shareable(DecoderObject *self, PyObject *value)
 {
@@ -870,6 +871,7 @@ Decoder__parse_datestr(DecoderObject *self, PyObject *str)
 }
 
 
+// Decoder.decode_datestr(self)
 static PyObject *
 Decoder_decode_datestr(DecoderObject *self)
 {
@@ -901,6 +903,7 @@ Decoder_decode_datestr(DecoderObject *self)
 }
 
 
+// Decoder.decode_timestamp(self)
 static PyObject *
 Decoder_decode_timestamp(DecoderObject *self)
 {
@@ -928,6 +931,7 @@ Decoder_decode_timestamp(DecoderObject *self)
 }
 
 
+// Decoder.decode_positive_bignum(self)
 static PyObject *
 Decoder_decode_positive_bignum(DecoderObject *self)
 {
@@ -949,6 +953,7 @@ Decoder_decode_positive_bignum(DecoderObject *self)
 }
 
 
+// Decoder.decode_negative_bignum(self)
 static PyObject *
 Decoder_decode_negative_bignum(DecoderObject *self)
 {
@@ -973,6 +978,7 @@ Decoder_decode_negative_bignum(DecoderObject *self)
 }
 
 
+// Decoder.decode_fraction(self)
 static PyObject *
 Decoder_decode_fraction(DecoderObject *self)
 {
@@ -1005,6 +1011,7 @@ Decoder_decode_fraction(DecoderObject *self)
 }
 
 
+// Decoder.decode_bigfloat
 static PyObject *
 Decoder_decode_bigfloat(DecoderObject *self)
 {
@@ -1036,6 +1043,7 @@ Decoder_decode_bigfloat(DecoderObject *self)
 }
 
 
+// Decoder.decode_shareable(self)
 static PyObject *
 Decoder_decode_shareable(DecoderObject *self)
 {
@@ -1053,6 +1061,7 @@ Decoder_decode_shareable(DecoderObject *self)
 }
 
 
+// Decoder.decode_shared(self)
 static PyObject *
 Decoder_decode_shared(DecoderObject *self)
 {
@@ -1086,6 +1095,7 @@ Decoder_decode_shared(DecoderObject *self)
 }
 
 
+// Decoder.decode_rational(self)
 static PyObject *
 Decoder_decode_rational(DecoderObject *self)
 {
@@ -1111,6 +1121,7 @@ Decoder_decode_rational(DecoderObject *self)
 }
 
 
+// Decoder.decode_regexp(self)
 static PyObject *
 Decoder_decode_regexp(DecoderObject *self)
 {
@@ -1130,6 +1141,7 @@ Decoder_decode_regexp(DecoderObject *self)
 }
 
 
+// Decoder.decode_mime(self)
 static PyObject *
 Decoder_decode_mime(DecoderObject *self)
 {
@@ -1154,6 +1166,7 @@ Decoder_decode_mime(DecoderObject *self)
 }
 
 
+// Decoder.decode_uuid(self)
 static PyObject *
 Decoder_decode_uuid(DecoderObject *self)
 {
@@ -1173,6 +1186,7 @@ Decoder_decode_uuid(DecoderObject *self)
 }
 
 
+// Decoder.decode_set(self)
 static PyObject *
 Decoder_decode_set(DecoderObject *self)
 {
@@ -1239,6 +1253,7 @@ Decoder__decode_special(DecoderObject *self, uint8_t subtype)
 }
 
 
+// Decoder.decode_simplevalue(self)
 static PyObject *
 Decoder_decode_simplevalue(DecoderObject *self)
 {
@@ -1261,6 +1276,7 @@ Decoder_decode_simplevalue(DecoderObject *self)
 }
 
 
+// Decoder.decode_float16(self)
 static PyObject *
 Decoder_decode_float16(DecoderObject *self)
 {
@@ -1277,6 +1293,7 @@ Decoder_decode_float16(DecoderObject *self)
 }
 
 
+// Decoder.decode_float32(self)
 static PyObject *
 Decoder_decode_float32(DecoderObject *self)
 {
@@ -1296,6 +1313,7 @@ Decoder_decode_float32(DecoderObject *self)
 }
 
 
+// Decoder.decode_float64(self)
 static PyObject *
 Decoder_decode_float64(DecoderObject *self)
 {
@@ -1339,6 +1357,7 @@ Decoder_decode(DecoderObject *self)
 }
 
 
+// TODO Consolidate these utility methods into arguments on decode?
 static PyObject *
 Decoder_decode_unshared(DecoderObject *self)
 {
