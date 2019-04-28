@@ -499,7 +499,8 @@ Encoder_encode_semantic(EncoderObject *self, PyObject *value)
 
 
 static PyObject *
-Encoder__encode_negative(PyObject *value) {
+Encoder__encode_negative_int(PyObject *value)
+{
     PyObject *neg, *one, *ret = NULL;
 
     // return -value - 1
@@ -516,15 +517,79 @@ Encoder__encode_negative(PyObject *value) {
 }
 
 
+static PyObject *
+Encoder__encode_larger_int(EncoderObject *self, PyObject *value)
+{
+    PyObject *zero, *bits, *buf, *tmp, *ret = NULL;
+    uint8_t major_tag;
+    unsigned long long val;
+
+    zero = PyLong_FromLong(0);
+    if (zero) {
+        major_tag = 0;
+        // This isn't strictly required for the positive case, but ensuring
+        // value is a new (instead of "borrowed") reference simplifies the
+        // ref counting later
+        Py_INCREF(value);
+        switch (PyObject_RichCompareBool(value, zero, Py_LT)) {
+            case 1:
+                major_tag = 1;
+                tmp = Encoder__encode_negative_int(value);
+                Py_DECREF(value);
+                value = tmp;
+                // fall-thru to positive case
+            case 0:
+                val = PyLong_AsUnsignedLongLong(value);
+                if (!PyErr_Occurred()) {
+                    if (Encoder__encode_length(self, major_tag, val) == 0) {
+                        Py_INCREF(Py_None);
+                        ret = Py_None;
+                        break;
+                    }
+                }
+                // fall-thru to error case
+            case -1:
+                // if error is overflow encode a big-num
+                if (PyErr_ExceptionMatches(PyExc_OverflowError)) {
+                    PyErr_Clear();
+                    major_tag += 2;
+                    bits = PyObject_CallMethodObjArgs(
+                            value, _CBOAR_str_bit_length, NULL);
+                    if (bits) {
+                        long length = PyLong_AsLong(bits);
+                        if (!PyErr_Occurred()) {
+                            buf = PyObject_CallMethod(
+                                    value, "to_bytes", "ls#", (length + 7) / 8, "big", 3);
+                            if (buf) {
+                                if (Encoder__encode_semantic(self, major_tag, buf) == 0) {
+                                    Py_INCREF(Py_None);
+                                    ret = Py_None;
+                                }
+                                Py_DECREF(buf);
+                            }
+                        }
+                        Py_DECREF(bits);
+                    }
+                }
+                break;
+            default:
+                assert(0);
+        }
+        Py_DECREF(value);
+    }
+    return ret;
+}
+
+
+
 // Encoder.encode_int(self, value)
 static PyObject *
 Encoder_encode_int(EncoderObject *self, PyObject *value)
 {
-    PyObject *bits, *buf, *ret = NULL;
+    PyObject *ret = NULL;
     long val;
     int overflow;
 
-    // TODO can we cover the full 64-bit range with PyLong_AsUnsignedLongLong?
     val = PyLong_AsLongAndOverflow(value, &overflow);
     if (overflow == 0) {
         // fast-path: technically this branch isn't needed, but longs are much
@@ -532,68 +597,21 @@ Encoder_encode_int(EncoderObject *self, PyObject *value)
         // majority of ints encoded will fall into this size
         if (val != -1 || !PyErr_Occurred()) {
             if (val >= 0) {
-                if (Encoder__encode_length(self, 0, val) == 0)
+                if (Encoder__encode_length(self, 0, val) == 0) {
+                    Py_INCREF(Py_None);
                     ret = Py_None;
+                }
             } else {
                 // avoid overflow in the case where int_value == -2^31
                 val = -(val + 1);
                 if (Encoder__encode_length(self, 1, val) == 0) {
+                    Py_INCREF(Py_None);
                     ret = Py_None;
-            }
-        }
-    } else {
-        // fits in 64-bits case: this case isn't technically correct in as
-        // much as it skips to "big nums" for anything fully 64-bit (because
-        // long long is signed), but I figure that's acceptable
-        long long ll_val;
-
-        ll_val = PyLong_AsLongLongAndOverflow(value, &overflow);
-        if (overflow == 0) {
-            if (ll_val != -1 || !PyErr_Occurred()) {
-                if (ll_val >= 0) {
-                    if (Encoder__encode_length(self, 0, ll_val) == 0)
-                        ret = Py_None;
-                } else {
-                    // avoid overflow in the case where int_value == -2^63
-                    ll_val = -(ll_val + 1);
-                    if (Encoder__encode_length(self, 0x20, ll_val) == 0)
-                        ret = Py_None;
                 }
             }
-        } else {
-            uint8_t major_tag;
-
-            if (overflow == -1) {
-                major_tag = 3;
-                value = Encoder__encode_negative(value);
-                // value is now an owned reference, instead of borrowed
-            } else {
-                major_tag = 2;
-                // convert value to an owned reference; this isn't strictly
-                // necessary but simplifies memory handling in the next bit
-                Py_INCREF(value);
-            }
-            if (value) {
-                bits = PyObject_CallMethodObjArgs(
-                        value, _CBOAR_str_bit_length, NULL);
-                if (bits) {
-                    long length = PyLong_AsLong(bits);
-                    if (!PyErr_Occurred()) {
-                        buf = PyObject_CallMethod(
-                                value, "to_bytes", "ls#", (length + 7) / 8, "big", 3);
-                        if (buf) {
-                            if (Encoder__encode_semantic(self, major_tag, buf) == 0)
-                                ret = Py_None;
-                            Py_DECREF(buf);
-                        }
-                    }
-                    Py_DECREF(bits);
-                }
-                Py_DECREF(value);
-            }
         }
-    }
-    Py_XINCREF(ret);
+    } else
+        ret = Encoder__encode_larger_int(self, value);
     return ret;
 }
 
@@ -784,6 +802,11 @@ Encoder_encode_decimal(EncoderObject *self, PyObject *value)
                                 ret = Py_None;
                             }
                             break;
+                        case -1:
+                            // error case
+                            break;
+                        default:
+                            assert(0);
                     }
                     Py_DECREF(zero);
                 }
