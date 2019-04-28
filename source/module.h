@@ -5,6 +5,16 @@
 #error "cboar requires Python 3.3 or newer"
 #endif
 
+// structure of the lead-byte for all CBOR records
+typedef
+    union {
+        struct {
+            unsigned int subtype: 5;
+            unsigned int major: 3;
+        };
+        char byte;
+    } LeadByte;
+
 // break_marker singleton
 extern PyObject _break_marker_obj;
 #define break_marker (&_break_marker_obj)

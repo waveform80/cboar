@@ -345,25 +345,28 @@ static int
 Encoder__encode_length(EncoderObject *self, const uint8_t major_tag,
                        const uint64_t length)
 {
-    char buf[sizeof(uint64_t) + 1];
+    LeadByte *lead;
+    char buf[sizeof(LeadByte) + sizeof(uint64_t)];
 
+    lead = (LeadByte*)buf;
+    lead->major = major_tag;
     if (length < 24) {
-        buf[0] = major_tag | length;
+        lead->subtype = length;
         return Encoder__write(self, buf, 1);
     } else if (length <= UCHAR_MAX) {
-        buf[0] = major_tag | 24;
+        lead->subtype = 24;
         buf[1] = length;
         return Encoder__write(self, buf, sizeof(uint8_t) + 1);
     } else if (length <= USHRT_MAX) {
-        buf[0] = major_tag | 25;
+        lead->subtype = 25;
         *((uint16_t*)(buf + 1)) = htobe16(length);
         return Encoder__write(self, buf, sizeof(uint16_t) + 1);
     } else if (length <= UINT_MAX) {
-        buf[0] = major_tag | 26;
+        lead->subtype = 26;
         *((uint32_t*)(buf + 1)) = htobe32(length);
         return Encoder__write(self, buf, sizeof(uint32_t) + 1);
     } else {
-        buf[0] = major_tag | 27;
+        lead->subtype = 27;
         *((uint64_t*)(buf + 1)) = htobe64(length);
         return Encoder__write(self, buf, sizeof(uint64_t) + 1);
     }
@@ -391,7 +394,7 @@ Encoder__encode_semantic(EncoderObject *self, const uint64_t tag,
 {
     PyObject *obj;
 
-    if (Encoder__encode_length(self, 0xC0, tag) == -1)
+    if (Encoder__encode_length(self, 6, tag) == -1)
         return -1;
     // XXX Potential recursion
     obj = Encoder_encode(self, value);
@@ -411,7 +414,7 @@ Encoder__encode_shared(EncoderObject *self, EncodeFunction *encoder,
         tuple = PyDict_GetItem(self->shared, id);
         if (self->value_sharing) {
             if (tuple) {
-                if (Encoder__encode_length(self, 0xD8, 0x1D) == 0)
+                if (Encoder__encode_length(self, 6, 29) == 0)
                     ret = Encoder_encode_int(self, PyTuple_GET_ITEM(tuple, 1));
             } else {
                 index = PyLong_FromSsize_t(PyDict_Size(self->shared));
@@ -419,7 +422,7 @@ Encoder__encode_shared(EncoderObject *self, EncodeFunction *encoder,
                     tuple = PyTuple_Pack(2, value, index);
                     if (tuple) {
                         if (PyDict_SetItem(self->shared, id, tuple) == 0)
-                            if (Encoder__encode_length(self, 0xD8, 0x1C) == 0)
+                            if (Encoder__encode_length(self, 6, 28) == 0)
                                 ret = encoder(self, value);
                         Py_DECREF(tuple);
                     }
@@ -534,7 +537,7 @@ Encoder_encode_int(EncoderObject *self, PyObject *value)
             } else {
                 // avoid overflow in the case where int_value == -2^31
                 val = -(val + 1);
-                if (Encoder__encode_length(self, 0x20, val) == 0)
+                if (Encoder__encode_length(self, 1, val) == 0) {
                     ret = Py_None;
             }
         }
@@ -604,7 +607,7 @@ Encoder_encode_bytes(EncoderObject *self, PyObject *value)
 
     if (PyBytes_AsStringAndSize(value, &buf, &length) == -1)
         return NULL;
-    if (Encoder__encode_length(self, 0x40, length) == -1)
+    if (Encoder__encode_length(self, 2, length) == -1)
         return NULL;
     if (Encoder__write(self, buf, length) == -1)
         return NULL;
@@ -623,7 +626,7 @@ Encoder_encode_bytearray(EncoderObject *self, PyObject *value)
         return NULL;
     }
     length = PyByteArray_GET_SIZE(value);
-    if (Encoder__encode_length(self, 0x40, length) == -1)
+    if (Encoder__encode_length(self, 2, length) == -1)
         return NULL;
     if (Encoder__write(self, PyByteArray_AS_STRING(value), length) == -1)
         return NULL;
@@ -641,7 +644,7 @@ Encoder_encode_string(EncoderObject *self, PyObject *value)
     buf = PyUnicode_AsUTF8AndSize(value, &length);
     if (!buf)
         return NULL;
-    if (Encoder__encode_length(self, 0x60, length) == -1)
+    if (Encoder__encode_length(self, 3, length) == -1)
         return NULL;
     if (Encoder__write(self, buf, length) == -1)
         return NULL;
@@ -835,12 +838,12 @@ Encoder__encode_datestr(EncoderObject *self, PyObject *datestr)
         if (buf) {
             if (Encoder__write(self, "\xC0", 1) == 0) {
                 if (match) {
-                    if (Encoder__encode_length(self, 0x60, length - 5) == 0)
+                    if (Encoder__encode_length(self, 3, length - 5) == 0)
                         if (Encoder__write(self, buf, length - 6) == 0)
                             if (Encoder__write(self, "Z", 1) == 0)
                                 Py_RETURN_NONE;
                 } else {
-                    if (Encoder__encode_length(self, 0x60, length) == 0)
+                    if (Encoder__encode_length(self, 3, length) == 0)
                         if (Encoder__write(self, buf, length) == 0)
                             Py_RETURN_NONE;
                 }
@@ -1072,7 +1075,7 @@ Encoder__encode_array(EncoderObject *self, PyObject *value)
     if (fast) {
         length = PySequence_Fast_GET_SIZE(fast);
         items = PySequence_Fast_ITEMS(fast);
-        if (Encoder__encode_length(self, 0x80, length) == 0) {
+        if (Encoder__encode_length(self, 4, length) == 0) {
             while (length) {
                 // XXX Recursion
                 if (!Encoder_encode(self, *items))
@@ -1105,7 +1108,7 @@ Encoder__encode_map(EncoderObject *self, PyObject *value)
     Py_ssize_t length, pos = 0;
 
     if (PyDict_Check(value)) {
-        if (Encoder__encode_length(self, 0xA0, PyDict_Size(value)) == 0) {
+        if (Encoder__encode_length(self, 5, PyDict_Size(value)) == 0) {
 
             while (PyDict_Next(value, &pos, &key, &val)) {
                 // XXX Recursion
@@ -1124,7 +1127,7 @@ Encoder__encode_map(EncoderObject *self, PyObject *value)
             if (fast) {
                 length = PySequence_Fast_GET_SIZE(fast);
                 items = PySequence_Fast_ITEMS(fast);
-                if (Encoder__encode_length(self, 0xA0, length) == 0) {
+                if (Encoder__encode_length(self, 5, length) == 0) {
                     while (length) {
                         // XXX Recursion
                         if (!Encoder_encode(self, PyTuple_GET_ITEM(*items, 0)))
@@ -1165,8 +1168,8 @@ Encoder__encode_set(EncoderObject *self, PyObject *value)
     if (length != -1) {
         iter = PyObject_GetIter(value);
         if (iter) {
-            if (Encoder__encode_length(self, 0xC0, 258) == 0) {
-                if (Encoder__encode_length(self, 0x80, length) == 0) {
+            if (Encoder__encode_length(self, 6, 258) == 0) {
+                if (Encoder__encode_length(self, 4, length) == 0) {
                     while ((item = PyIter_Next(iter))) {
                         // XXX Recursion
                         if (!Encoder_encode(self, item)) {

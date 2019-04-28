@@ -14,15 +14,6 @@
 #include "decoder.h"
 
 
-typedef
-    union {
-        struct {
-            unsigned int subtype: 5;
-            unsigned int major: 3;
-        };
-        char byte;
-    } LeadByte;
-
 static int Decoder_set_fp(DecoderObject *, PyObject *, void *);
 static int Decoder_set_tag_hook(DecoderObject *, PyObject *, void *);
 static int Decoder_set_object_hook(DecoderObject *, PyObject *, void *);

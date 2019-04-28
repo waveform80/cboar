@@ -10,7 +10,7 @@ from uuid import UUID
 
 import pytest
 
-from cboar import dumps, dump, undefined, CBORTag, CBORSimpleValue, shareable_encoder
+from cboar import *
 
 
 @pytest.mark.parametrize('value, expected', [
@@ -270,13 +270,13 @@ def test_dump_to_file(tmpdir):
 
 
 @pytest.mark.parametrize('value, expected', [
-    (OrderedDict([(b'a', b''), (b'b', b'')]), 'A2416140416240'),
-    (OrderedDict([(b'b', b''), (b'a', b'')]), 'A2416140416240'),
+    (OrderedDict([(b'a', b''), (b'b', b'')]), 'a2416140416240'),
+    (OrderedDict([(b'b', b''), (b'a', b'')]), 'a2416140416240'),
     (OrderedDict([(u'a', u''), (u'b', u'')]), 'a2616160616260'),
     (OrderedDict([(u'b', u''), (u'a', u'')]), 'a2616160616260'),
-    (OrderedDict([(b'00001', u''), (b'002', u'')]), 'A2433030326045303030303160'),
+    (OrderedDict([(b'00001', u''), (b'002', u'')]), 'a2433030326045303030303160'),
     (OrderedDict([(255, 0), (2, 0)]), 'a2020018ff00'),
-    #(FrozenDict([(b'a', b''), (b'b', b'')]), 'A2416140416240'),
+    #(FrozenDict([(b'a', b''), (b'b', b'')]), 'a2416140416240'),
 ], ids=[
     'bytes in order',
     'bytes out of order',

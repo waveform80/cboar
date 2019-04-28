@@ -29,7 +29,11 @@
 //    "goto" should be used over a minimal distance to ensure Py_DECREFs aren't
 //    jumped over.
 //
-// 4. The above rules are broken occasionally where necessary for clarity :)
+// 4. Wherever possible, functions that return a PyObject pointer return a
+//    *new* reference (like the majority of the CPython API) as opposed to
+//    a borrowed reference.
+//
+// 5. The above rules are broken occasionally where necessary for clarity :)
 //
 // While this style helps ensure fewer leaks, it's worth noting it results in
 // rather "nested" code which looks a bit unusual / ugly for C. Furthermore,
@@ -166,12 +170,11 @@ CBORSimpleValue_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
         return NULL;
 
     ret = PyStructSequence_New(type);
-    if (!ret)
-        return NULL;
-    value = PyLong_FromLong(val);
-    if (!value)
-        return NULL;
-    PyStructSequence_SET_ITEM(ret, 0, value);
+    if (ret) {
+        value = PyLong_FromLong(val);
+        if (value)
+            PyStructSequence_SET_ITEM(ret, 0, value);
+    }
     return ret;
 }
 
