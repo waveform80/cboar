@@ -10,6 +10,7 @@ typedef struct {
     PyObject *shared;
     PyObject *timezone;
     PyObject *shared_handler;
+    uint8_t enc_style;  // 0=regular, 1=canonical, 2=custom
     bool timestamp_format;
     bool value_sharing;
 } EncoderObject;

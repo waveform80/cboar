@@ -1278,7 +1278,7 @@ Decoder_decode_float16(DecoderObject *self)
     } u;
 
     if (Decoder__read(self, u.buf, sizeof(uint16_t)) == 0)
-        ret = PyFloat_FromDouble(read_float16(u.i));
+        ret = PyFloat_FromDouble(unpack_float16(u.i));
     Decoder__set_shareable(self, ret);
     return ret;
 }
@@ -1297,7 +1297,7 @@ Decoder_decode_float32(DecoderObject *self)
 
     if (Decoder__read(self, u.buf, sizeof(float)) == 0) {
         u.i = be32toh(u.i);
-        ret = PyFloat_FromDouble((double)u.f);
+        ret = PyFloat_FromDouble(u.f);
     }
     Decoder__set_shareable(self, ret);
     return ret;

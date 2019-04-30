@@ -8,6 +8,7 @@
 #include <structmember.h>
 #include <datetime.h>
 #include "module.h"
+#include "halffloat.h"
 #include "tags.h"
 #include "encoder.h"
 
@@ -65,6 +66,7 @@ Encoder_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
         self->default_handler = Py_None;
         Py_INCREF(Py_None);
         self->timezone = Py_None;
+        self->enc_style = 0;
         self->timestamp_format = false;
         self->value_sharing = false;
         self->shared_handler = NULL;
@@ -83,13 +85,13 @@ Encoder_init(EncoderObject *self, PyObject *args, PyObject *kwargs)
 {
     static char *keywords[] = {
         "fp", "datetime_as_timestamp", "timezone", "value_sharing", "default",
-        NULL
+        "enc_style", NULL
     };
     PyObject *fp = NULL, *default_handler = NULL, *timezone = NULL;
 
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|pOpO", keywords,
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|pOpOB", keywords,
                 &fp, &self->timestamp_format, &timezone, &self->value_sharing,
-                &default_handler))
+                &default_handler, &self->enc_style))
         return -1;
 
     if (Encoder_set_fp(self, fp, NULL) == -1)
@@ -339,7 +341,7 @@ Encoder_find_encoder(EncoderObject *self, PyObject *type)
 }
 
 
-// Encoding methods //////////////////////////////////////////////////////////
+// Regular encoding methods //////////////////////////////////////////////////
 
 static int
 Encoder__encode_length(EncoderObject *self, const uint8_t major_tag,
@@ -698,7 +700,6 @@ Encoder_encode_float(EncoderObject *self, PyObject *value)
             }
             break;
         default:
-            // TODO test for valid smaller precisions
             if (Encoder__write(self, "\xFB", 1) == -1)
                 return NULL;
             u.i = htobe64(u.i);
@@ -1222,6 +1223,77 @@ Encoder_encode_set(EncoderObject *self, PyObject *value)
     return Encoder__encode_shared(self, &Encoder__encode_set, value);
 }
 
+
+// Canonical encoding methods ////////////////////////////////////////////////
+
+// Encoder.encode_minimal_float(self, value)
+static PyObject *
+Encoder_encode_minimal_float(EncoderObject *self, PyObject *value)
+{
+    union {
+        double f;
+        uint64_t i;
+        char buf[sizeof(double)];
+    } u_double;
+
+    union {
+        float f;
+        uint32_t i;
+        char buf[sizeof(float)];
+    } u_single;
+
+    union {
+        uint16_t i;
+        char buf[sizeof(uint16_t)];
+    } u_half;
+
+    u_double.f = PyFloat_AS_DOUBLE(value);
+    if (u_double.f == -1.0 && PyErr_Occurred())
+        return NULL;
+    switch (fpclassify(u_double.f)) {
+        case FP_NAN:
+            if (Encoder__write(self, "\xF9\x7E\x00", 3) == -1)
+                return NULL;
+            break;
+        case FP_INFINITE:
+            if (u_double.f > 0) {
+                if (Encoder__write(self, "\xF9\x7C\x00", 3) == -1)
+                    return NULL;
+            } else {
+                if (Encoder__write(self, "\xF9\xFC\x00", 3) == -1)
+                    return NULL;
+            }
+            break;
+        default:
+            u_single.f = u_double.f;
+            if (u_single.f == u_double.f) {
+                u_half.i = pack_float16(u_single.f);
+                if (unpack_float16(u_half.i) == u_single.f) {
+                    if (Encoder__write(self, "\xF9", 1) == -1)
+                        return NULL;
+                    if (Encoder__write(self, u_half.buf, sizeof(uint16_t)) == -1)
+                        return NULL;
+                } else {
+                    if (Encoder__write(self, "\xFA", 1) == -1)
+                        return NULL;
+                    u_single.i = htobe32(u_single.i);
+                    if (Encoder__write(self, u_single.buf, sizeof(float)) == -1)
+                        return NULL;
+                }
+            } else {
+                if (Encoder__write(self, "\xFB", 1) == -1)
+                    return NULL;
+                u_double.i = htobe64(u_double.i);
+                if (Encoder__write(self, u_double.buf, sizeof(double)) == -1)
+                    return NULL;
+            }
+            break;
+    }
+    Py_RETURN_NONE;
+}
+
+
+// The encode method /////////////////////////////////////////////////////////
 
 // Encoder.encode(self, value)
 static PyObject *
@@ -1231,49 +1303,54 @@ Encoder_encode(EncoderObject *self, PyObject *value)
 
     // TODO reset shared dict?
 
-    // Fast-path checks; these effectively override the contents of the
-    // encoders dict (so replacing the encoder mapping for, e.g. "int" won't
-    // affect which method is called) but then the primary purpose for this
-    // translation is speed. If replacing primary mappings is required, you're
-    // better off with the original cbor2.
-    if (PyBytes_CheckExact(value))
-        return Encoder_encode_bytes(self, value);
-    else if (PyByteArray_CheckExact(value))
-        return Encoder_encode_bytearray(self, value);
-    else if (PyUnicode_CheckExact(value))
-        return Encoder_encode_string(self, value);
-    else if (PyLong_CheckExact(value))
-        return Encoder_encode_int(self, value);
-    else if (PyFloat_CheckExact(value))
-        return Encoder_encode_float(self, value);
-    else if (PyBool_Check(value))
-        return Encoder_encode_boolean(self, value);
-    else if (value == Py_None)
-        return Encoder_encode_none(self, value);
-    else if (PyTuple_CheckExact(value))
-        return Encoder_encode_array(self, value);
-    else if (PyList_CheckExact(value))
-        return Encoder_encode_array(self, value);
-    else if (PyDict_CheckExact(value))
-        return Encoder_encode_map(self, value);
-    else if (PyDateTime_CheckExact(value))
-        return Encoder_encode_datetime(self, value);
-    else if (PyDate_CheckExact(value))
-        return Encoder_encode_date(self, value);
-    else {
-        encoder = Encoder_find_encoder(self, (PyObject *)Py_TYPE(value));
-        if (encoder) {
-            if (encoder != Py_None)
-                ret = PyObject_CallFunctionObjArgs(
-                        encoder, self, value, NULL);
-            else if (self->default_handler != Py_None)
-                ret = PyObject_CallFunctionObjArgs(
-                        self->default_handler, self, value, NULL);
-            else
-                PyErr_Format(PyExc_ValueError, "cannot serialize type %R",
-                        (PyObject *)Py_TYPE(value));
-            Py_DECREF(encoder);
-        }
+    switch (self->enc_style) {
+        case 1:
+            // canonical encoders
+            if (PyFloat_CheckExact(value))
+                return Encoder_encode_minimal_float(self, value);
+            // fall-thru
+        case 0:
+            // regular encoders
+            if (PyBytes_CheckExact(value))
+                return Encoder_encode_bytes(self, value);
+            else if (PyByteArray_CheckExact(value))
+                return Encoder_encode_bytearray(self, value);
+            else if (PyUnicode_CheckExact(value))
+                return Encoder_encode_string(self, value);
+            else if (PyLong_CheckExact(value))
+                return Encoder_encode_int(self, value);
+            else if (PyFloat_CheckExact(value))
+                return Encoder_encode_float(self, value);
+            else if (PyBool_Check(value))
+                return Encoder_encode_boolean(self, value);
+            else if (value == Py_None)
+                return Encoder_encode_none(self, value);
+            else if (PyTuple_CheckExact(value))
+                return Encoder_encode_array(self, value);
+            else if (PyList_CheckExact(value))
+                return Encoder_encode_array(self, value);
+            else if (PyDict_CheckExact(value))
+                return Encoder_encode_map(self, value);
+            else if (PyDateTime_CheckExact(value))
+                return Encoder_encode_datetime(self, value);
+            else if (PyDate_CheckExact(value))
+                return Encoder_encode_date(self, value);
+            // fall-thru
+        default:
+            // lookup type (or subclass) in self->encoders
+            encoder = Encoder_find_encoder(self, (PyObject *)Py_TYPE(value));
+            if (encoder) {
+                if (encoder != Py_None)
+                    ret = PyObject_CallFunctionObjArgs(
+                            encoder, self, value, NULL);
+                else if (self->default_handler != Py_None)
+                    ret = PyObject_CallFunctionObjArgs(
+                            self->default_handler, self, value, NULL);
+                else
+                    PyErr_Format(PyExc_ValueError, "cannot serialize type %R",
+                            (PyObject *)Py_TYPE(value));
+                Py_DECREF(encoder);
+            }
     }
     return ret;
 }
@@ -1284,6 +1361,9 @@ Encoder_encode(EncoderObject *self, PyObject *value)
 static PyMemberDef Encoder_members[] = {
     {"encoders", T_OBJECT_EX, offsetof(EncoderObject, encoders), READONLY,
         "the ordered dict mapping types to encoder functions"},
+    {"enc_style", T_UBYTE, offsetof(EncoderObject, enc_style), 0,
+        "the optimized encoder lookup to use (0=regular, 1=canonical, "
+        "anything else is custom)"},
     {"timestamp_format", T_BOOL, offsetof(EncoderObject, timestamp_format), 0,
         "the sub-type to use when encoding datetime objects"},
     {"value_sharing", T_BOOL, offsetof(EncoderObject, value_sharing), 0,
@@ -1302,6 +1382,9 @@ static PyGetSetDef Encoder_getsetters[] = {
 };
 
 static PyMethodDef Encoder_methods[] = {
+    {"find_encoder", (PyCFunction) Encoder_find_encoder, METH_O,
+        "find an encoding function for the specified type"},
+    // Standard encoding methods
     {"encode", (PyCFunction) Encoder_encode, METH_O,
         "encode the specified *value* to the output"},
     {"encode_length", (PyCFunction) Encoder_encode_length, METH_VARARGS,
@@ -1348,8 +1431,9 @@ static PyMethodDef Encoder_methods[] = {
         "encode the specified set to the output"},
     {"encode_shared", (PyCFunction) Encoder_encode_shared, METH_VARARGS,
         "encode the specified CBORTag to the output"},
-    {"find_encoder", (PyCFunction) Encoder_find_encoder, METH_O,
-        "find an encoding function for the specified type"},
+    // Canonical encoding methods
+    {"encode_minimal_float", (PyCFunction) Encoder_encode_minimal_float, METH_O,
+        "encode the specified float to a minimal representation in the output"},
     {NULL}
 };
 

@@ -47,6 +47,7 @@ default_encoders = [
 
 
 canonical_encoders = [
+    (float,                           Encoder.encode_minimal_float),
     # TODO
 ]
 
@@ -62,7 +63,7 @@ class CBOREncoder(Encoder):
     def __init__(self, fp, datetime_as_timestamp=False, timezone=None,
                  value_sharing=False, default=None, canonical=False):
         super().__init__(fp, datetime_as_timestamp, timezone, value_sharing,
-                         default)
+                         default, canonical)
         self.encoders.update(default_encoders)
         if canonical:
             self.encoders.update(canonical_encoders)
@@ -78,7 +79,8 @@ class CBOREncoder(Encoder):
 
 
 class CBORDecoder(Decoder):
-    def __init__(self, fp, tag_hook=None, object_hook=None, str_errors='strict'):
+    def __init__(self, fp, tag_hook=None, object_hook=None,
+                 str_errors='strict'):
         super().__init__(fp, tag_hook, object_hook, str_errors)
 
     def decode_from_bytes(self, buf):
