@@ -221,11 +221,15 @@ Encoder_set_timezone(EncoderObject *self, PyObject *value, void *closure)
 static int
 Encoder__write(EncoderObject *self, const char *buf, const int length)
 {
-    PyObject *obj;
+    PyObject *bytes, *ret = NULL;
 
-    obj = PyObject_CallFunction(self->write, "y#", buf, length);
-    Py_XDECREF(obj);
-    return obj == NULL ? -1 : 0;
+    bytes = PyBytes_FromStringAndSize(buf, length);
+    if (bytes) {
+        ret = PyObject_CallFunctionObjArgs(self->write, bytes, NULL);
+        Py_XDECREF(ret);
+        Py_DECREF(bytes);
+    }
+    return ret ? 0 : -1;
 }
 
 
