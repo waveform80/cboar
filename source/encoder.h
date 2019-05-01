@@ -5,6 +5,7 @@
 typedef struct {
     PyObject_HEAD
     PyObject *write;    // cached write() method of fp
+    PyObject *output;
     PyObject *encoders;
     PyObject *default_handler;
     PyObject *shared;

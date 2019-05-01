@@ -35,12 +35,14 @@ extern PyObject *_CBOAR_str_as_string;
 extern PyObject *_CBOAR_str_as_tuple;
 extern PyObject *_CBOAR_str_bit_length;
 extern PyObject *_CBOAR_str_bytes;
+extern PyObject *_CBOAR_str_BytesIO;
 extern PyObject *_CBOAR_str_compile;
 extern PyObject *_CBOAR_str_datestr_re;
 extern PyObject *_CBOAR_str_Decimal;
 extern PyObject *_CBOAR_str_denominator;
 extern PyObject *_CBOAR_str_Fraction;
 extern PyObject *_CBOAR_str_fromtimestamp;
+extern PyObject *_CBOAR_str_getvalue;
 extern PyObject *_CBOAR_str_groups;
 extern PyObject *_CBOAR_str_is_infinite;
 extern PyObject *_CBOAR_str_is_nan;
@@ -63,6 +65,7 @@ extern PyObject *_CBOAR_str_write;
 // Global references (initialized by functions declared below)
 extern PyObject *_CBOAR_timezone;
 extern PyObject *_CBOAR_timezone_utc;
+extern PyObject *_CBOAR_BytesIO;
 extern PyObject *_CBOAR_OrderedDict;
 extern PyObject *_CBOAR_Decimal;
 extern PyObject *_CBOAR_Fraction;
@@ -73,6 +76,7 @@ extern PyObject *_CBOAR_datestr_re;
 
 // Initializers for the cached references above
 int _CBOAR_init_timezone_utc(void); // also handles timezone
+int _CBOAR_init_BytesIO(void);
 int _CBOAR_init_OrderedDict(void);
 int _CBOAR_init_Decimal(void);
 int _CBOAR_init_Fraction(void);

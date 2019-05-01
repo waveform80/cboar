@@ -16,7 +16,10 @@ from _cboar import (
 default_encoders = [
     # The following encoders are effectively hard-coded in the C-based class;
     # you can't override them by adjusting these definitions (or by adjusting
-    # the Encoder.encoders OrderedDict).
+    # the Encoder.encoders OrderedDict). If you wish to override them, pass 2
+    # as the value of the "canonical" parameter in the constructor. This
+    # disables the hard-coded lookup (with some speed cost) but allows full
+    # customization of the encoders
     (bytes,                           Encoder.encode_bytes),
     (bytearray,                       Encoder.encode_bytearray),
     (str,                             Encoder.encode_string),
@@ -29,8 +32,10 @@ default_encoders = [
     (dict,                            Encoder.encode_map),
     (datetime,                        Encoder.encode_datetime),
     (date,                            Encoder.encode_date),
-    # Everything from here is looked up from Encoder.encoders, and is
-    # therefore customizable
+    (set,                             Encoder.encode_set),
+    (frozenset,                       Encoder.encode_set),
+    # Everything from here is always looked up from Encoder.encoders, and is
+    # therefore customizable by default
     (('decimal', 'Decimal'),          Encoder.encode_decimal),
     (('fractions', 'Fraction'),       Encoder.encode_rational),
     (defaultdict,                     Encoder.encode_map),
@@ -41,14 +46,18 @@ default_encoders = [
     (('uuid', 'UUID'),                Encoder.encode_uuid),
     (CBORTag,                         Encoder.encode_semantic),
     (CBORSimpleValue,                 Encoder.encode_simple),
-    (set,                             Encoder.encode_set),
-    (frozenset,                       Encoder.encode_set),
 ]
 
 
 canonical_encoders = [
+    # The same warning applies to the canonical encoders; these are hard-coded
+    # in the C-class unless 2 is passed as the value of the "canonical"
+    # parameter in which case they can be customized
     (float,                           Encoder.encode_minimal_float),
-    # TODO
+    (dict,                            Encoder.encode_canonical_map),
+    (set,                             Encoder.encode_canonical_set),
+    (frozenset,                       Encoder.encode_canonical_set),
+    (OrderedDict,                     Encoder.encode_canonical_map),
 ]
 
 
@@ -67,15 +76,6 @@ class CBOREncoder(Encoder):
         self.encoders.update(default_encoders)
         if canonical:
             self.encoders.update(canonical_encoders)
-
-    def encode_to_bytes(self, obj):
-        old_fp = self.fp
-        self.fp = fp = io.BytesIO()
-        try:
-            self.encode(obj)
-        finally:
-            self.fp = old_fp
-        return fp.getvalue()
 
 
 class CBORDecoder(Decoder):

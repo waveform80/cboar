@@ -337,23 +337,3 @@ def test_canonical_set(frozen):
 
     serialized = dumps(value, canonical=True)
     assert serialized == unhexlify('d9010284616161786179626161')
-
-
-@pytest.mark.skipif(sys.version_info >= (3, 6), reason="Using native struct.pack")
-@pytest.mark.parametrize('value, expected', [
-    (3.5, 'F94300'),
-    (100000.0,  False),
-    (3.8, False),
-    (float.fromhex('0x1.0p-24'), 'f90001'),
-    (float.fromhex('0x1.4p-24'), False),
-    (float.fromhex('0x1.ff8p-63'), False),
-    (1e300, False)
-], ids=['float 16', 'float 32', 'float 64',
-        'float 16 minimum positive subnormal', 'mantissa o/f to 32',
-        'exponent o/f to 32', 'oversize float'])
-def test_float16_encoder(value, expected):
-    if expected:
-        expected = unhexlify(expected)
-        assert pack_float16(value) == expected
-    else:
-        assert not pack_float16(value)

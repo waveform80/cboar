@@ -182,6 +182,26 @@ CBORSimpleValue_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
 // Cache-init functions //////////////////////////////////////////////////////
 
 int
+_CBOAR_init_BytesIO(void)
+{
+    PyObject *io;
+
+    // from io import BytesIO
+    io = PyImport_ImportModule("io");
+    if (!io)
+        goto error;
+    _CBOAR_BytesIO = PyObject_GetAttr(io, _CBOAR_str_BytesIO);
+    Py_DECREF(io);
+    if (!_CBOAR_BytesIO)
+        goto error;
+    return 0;
+error:
+    PyErr_SetString(PyExc_ImportError,
+            "unable to import BytesIO from io");
+    return -1;
+}
+
+int
 _CBOAR_init_OrderedDict(void)
 {
     PyObject *collections;
@@ -345,12 +365,14 @@ PyObject *_CBOAR_str_as_string = NULL;
 PyObject *_CBOAR_str_as_tuple = NULL;
 PyObject *_CBOAR_str_bit_length = NULL;
 PyObject *_CBOAR_str_bytes = NULL;
+PyObject *_CBOAR_str_BytesIO = NULL;
 PyObject *_CBOAR_str_compile = NULL;
 PyObject *_CBOAR_str_datestr_re = NULL;
 PyObject *_CBOAR_str_Decimal = NULL;
 PyObject *_CBOAR_str_denominator = NULL;
 PyObject *_CBOAR_str_Fraction = NULL;
 PyObject *_CBOAR_str_fromtimestamp = NULL;
+PyObject *_CBOAR_str_getvalue = NULL;
 PyObject *_CBOAR_str_groups = NULL;
 PyObject *_CBOAR_str_is_infinite = NULL;
 PyObject *_CBOAR_str_is_nan = NULL;
@@ -372,6 +394,7 @@ PyObject *_CBOAR_str_write = NULL;
 
 PyObject *_CBOAR_timezone = NULL;
 PyObject *_CBOAR_timezone_utc = NULL;
+PyObject *_CBOAR_BytesIO = NULL;
 PyObject *_CBOAR_OrderedDict = NULL;
 PyObject *_CBOAR_Decimal = NULL;
 PyObject *_CBOAR_Fraction = NULL;
@@ -385,6 +408,7 @@ cboar_free(PyObject *m)
 {
     Py_CLEAR(_CBOAR_timezone_utc);
     Py_CLEAR(_CBOAR_timezone);
+    Py_CLEAR(_CBOAR_BytesIO);
     Py_CLEAR(_CBOAR_OrderedDict);
     Py_CLEAR(_CBOAR_Decimal);
     Py_CLEAR(_CBOAR_Fraction);
@@ -455,11 +479,13 @@ PyInit__cboar(void)
     INTERN_STRING(as_tuple);
     INTERN_STRING(bit_length);
     INTERN_STRING(bytes);
+    INTERN_STRING(BytesIO);
     INTERN_STRING(compile);
     INTERN_STRING(Decimal);
     INTERN_STRING(denominator);
     INTERN_STRING(Fraction);
     INTERN_STRING(fromtimestamp);
+    INTERN_STRING(getvalue);
     INTERN_STRING(groups);
     INTERN_STRING(is_infinite);
     INTERN_STRING(is_nan);
