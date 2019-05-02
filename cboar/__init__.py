@@ -4,48 +4,43 @@ from functools import wraps
 from collections import defaultdict, OrderedDict, namedtuple
 from datetime import datetime, date
 
-from _cboar import (
-    Encoder,
-    Decoder,
-    Tag as CBORTag,
-    CBORSimpleValue,
-    undefined,
-)
+import _cboar
+from _cboar import (CBORTag, CBORSimpleValue, undefined)
 
 
 default_encoders = [
     # The following encoders are effectively hard-coded in the C-based class;
     # you can't override them by adjusting these definitions (or by adjusting
-    # the Encoder.encoders OrderedDict). If you wish to override them, pass 2
-    # as the value of the "canonical" parameter in the constructor. This
+    # the CBOREncoder.encoders OrderedDict). If you wish to override them, pass
+    # 2 as the value of the "canonical" parameter in the constructor. This
     # disables the hard-coded lookup (with some speed cost) but allows full
     # customization of the encoders
-    (bytes,                           Encoder.encode_bytes),
-    (bytearray,                       Encoder.encode_bytearray),
-    (str,                             Encoder.encode_string),
-    (int,                             Encoder.encode_int),
-    (float,                           Encoder.encode_float),
-    (bool,                            Encoder.encode_boolean),
-    (type(None),                      Encoder.encode_none),
-    (tuple,                           Encoder.encode_array),
-    (list,                            Encoder.encode_array),
-    (dict,                            Encoder.encode_map),
-    (datetime,                        Encoder.encode_datetime),
-    (date,                            Encoder.encode_date),
-    (set,                             Encoder.encode_set),
-    (frozenset,                       Encoder.encode_set),
-    # Everything from here is always looked up from Encoder.encoders, and is
-    # therefore customizable by default
-    (('decimal', 'Decimal'),          Encoder.encode_decimal),
-    (('fractions', 'Fraction'),       Encoder.encode_rational),
-    (defaultdict,                     Encoder.encode_map),
-    (OrderedDict,                     Encoder.encode_map),
-    (type(undefined),                 Encoder.encode_undefined),
-    (type(re.compile('')),            Encoder.encode_regex),
-    (('email.message', 'Message'),    Encoder.encode_mime),
-    (('uuid', 'UUID'),                Encoder.encode_uuid),
-    (CBORTag,                         Encoder.encode_semantic),
-    (CBORSimpleValue,                 Encoder.encode_simple),
+    (bytes,                           _cboar.CBOREncoder.encode_bytes),
+    (bytearray,                       _cboar.CBOREncoder.encode_bytearray),
+    (str,                             _cboar.CBOREncoder.encode_string),
+    (int,                             _cboar.CBOREncoder.encode_int),
+    (float,                           _cboar.CBOREncoder.encode_float),
+    (bool,                            _cboar.CBOREncoder.encode_boolean),
+    (type(None),                      _cboar.CBOREncoder.encode_none),
+    (tuple,                           _cboar.CBOREncoder.encode_array),
+    (list,                            _cboar.CBOREncoder.encode_array),
+    (dict,                            _cboar.CBOREncoder.encode_map),
+    (datetime,                        _cboar.CBOREncoder.encode_datetime),
+    (date,                            _cboar.CBOREncoder.encode_date),
+    (set,                             _cboar.CBOREncoder.encode_set),
+    (frozenset,                       _cboar.CBOREncoder.encode_set),
+    # Everything from here is always looked up from CBOREncoder.encoders, and
+    # is therefore customizable by default
+    (('decimal', 'Decimal'),          _cboar.CBOREncoder.encode_decimal),
+    (('fractions', 'Fraction'),       _cboar.CBOREncoder.encode_rational),
+    (defaultdict,                     _cboar.CBOREncoder.encode_map),
+    (OrderedDict,                     _cboar.CBOREncoder.encode_map),
+    (type(undefined),                 _cboar.CBOREncoder.encode_undefined),
+    (type(re.compile('')),            _cboar.CBOREncoder.encode_regex),
+    (('email.message', 'Message'),    _cboar.CBOREncoder.encode_mime),
+    (('uuid', 'UUID'),                _cboar.CBOREncoder.encode_uuid),
+    (CBORTag,                         _cboar.CBOREncoder.encode_semantic),
+    (CBORSimpleValue,                 _cboar.CBOREncoder.encode_simple),
 ]
 
 
@@ -53,11 +48,11 @@ canonical_encoders = [
     # The same warning applies to the canonical encoders; these are hard-coded
     # in the C-class unless 2 is passed as the value of the "canonical"
     # parameter in which case they can be customized
-    (float,                           Encoder.encode_minimal_float),
-    (dict,                            Encoder.encode_canonical_map),
-    (set,                             Encoder.encode_canonical_set),
-    (frozenset,                       Encoder.encode_canonical_set),
-    (OrderedDict,                     Encoder.encode_canonical_map),
+    (float,                           _cboar.CBOREncoder.encode_minimal_float),
+    (dict,                            _cboar.CBOREncoder.encode_canonical_map),
+    (set,                             _cboar.CBOREncoder.encode_canonical_set),
+    (frozenset,                       _cboar.CBOREncoder.encode_canonical_set),
+    (OrderedDict,                     _cboar.CBOREncoder.encode_canonical_map),
 ]
 
 
@@ -68,7 +63,7 @@ def shareable_encoder(func):
     return wrapper
 
 
-class CBOREncoder(Encoder):
+class CBOREncoder(_cboar.CBOREncoder):
     def __init__(self, fp, datetime_as_timestamp=False, timezone=None,
                  value_sharing=False, default=None, canonical=False):
         super().__init__(fp, datetime_as_timestamp, timezone, value_sharing,
@@ -78,7 +73,7 @@ class CBOREncoder(Encoder):
             self.encoders.update(canonical_encoders)
 
 
-class CBORDecoder(Decoder):
+class CBORDecoder(_cboar.CBORDecoder):
     def __init__(self, fp, tag_hook=None, object_hook=None,
                  str_errors='strict'):
         super().__init__(fp, tag_hook, object_hook, str_errors)

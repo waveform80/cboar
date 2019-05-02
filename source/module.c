@@ -312,7 +312,7 @@ _CBOAR_init_timezone_utc(void)
 {
     PyObject *datetime;
 
-#if PY_MAJOR_VERSION > 3 || PY_MINOR_VERSION >= 7
+#if PY_VERSION_HEX >= 0x03070000
     Py_INCREF(PyDateTime_TimeZone_UTC);
     _CBOAR_timezone_utc = PyDateTime_TimeZone_UTC;
     _CBOAR_timezone = NULL;
@@ -430,11 +430,11 @@ PyMODINIT_FUNC
 PyInit__cboar(void)
 {
     PyObject *module;
-    if (PyType_Ready(&TagType) < 0)
+    if (PyType_Ready(&CBORTagType) < 0)
         return NULL;
-    if (PyType_Ready(&EncoderType) < 0)
+    if (PyType_Ready(&CBOREncoderType) < 0)
         return NULL;
-    if (PyType_Ready(&DecoderType) < 0)
+    if (PyType_Ready(&CBORDecoderType) < 0)
         return NULL;
 
     module = PyModule_Create(&_cboarmodule);
@@ -450,16 +450,16 @@ PyInit__cboar(void)
             module, "CBORSimpleValue", (PyObject *) &CBORSimpleValueType) == -1)
         goto error;
 
-    Py_INCREF(&TagType);
-    if (PyModule_AddObject(module, "Tag", (PyObject *) &TagType) == -1)
+    Py_INCREF(&CBORTagType);
+    if (PyModule_AddObject(module, "CBORTag", (PyObject *) &CBORTagType) == -1)
         goto error;
 
-    Py_INCREF(&EncoderType);
-    if (PyModule_AddObject(module, "Encoder", (PyObject *) &EncoderType) == -1)
+    Py_INCREF(&CBOREncoderType);
+    if (PyModule_AddObject(module, "CBOREncoder", (PyObject *) &CBOREncoderType) == -1)
         goto error;
 
-    Py_INCREF(&DecoderType);
-    if (PyModule_AddObject(module, "Decoder", (PyObject *) &DecoderType) == -1)
+    Py_INCREF(&CBORDecoderType);
+    if (PyModule_AddObject(module, "CBORDecoder", (PyObject *) &CBORDecoderType) == -1)
         goto error;
 
     Py_INCREF(break_marker);

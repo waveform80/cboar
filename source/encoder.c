@@ -13,22 +13,24 @@
 #include "encoder.h"
 
 
-typedef PyObject * (EncodeFunction)(EncoderObject *, PyObject *);
+typedef PyObject * (EncodeFunction)(CBOREncoderObject *, PyObject *);
 
-static PyObject * Encoder_encode(EncoderObject *, PyObject *);
-static PyObject * Encoder_encode_to_bytes(EncoderObject *, PyObject *);
-static PyObject * Encoder_encode_int(EncoderObject *, PyObject *);
+static PyObject * CBOREncoder_encode(CBOREncoderObject *, PyObject *);
+static PyObject * CBOREncoder_encode_to_bytes(CBOREncoderObject *, PyObject *);
+static PyObject * CBOREncoder_encode_int(CBOREncoderObject *, PyObject *);
 
-static int Encoder_set_fp(EncoderObject *, PyObject *, void *);
-static int Encoder_set_default(EncoderObject *, PyObject *, void *);
-static int Encoder_set_timezone(EncoderObject *, PyObject *, void *);
+static int _CBOREncoder_set_fp(CBOREncoderObject *, PyObject *, void *);
+static int _CBOREncoder_set_default(CBOREncoderObject *, PyObject *, void *);
+static int _CBOREncoder_set_timezone(CBOREncoderObject *, PyObject *, void *);
+
+// TODO Docstrings
 
 
 // Constructors and destructors //////////////////////////////////////////////
 
-// Encoder.__del__(self)
+// CBOREncoder.__del__(self)
 static void
-Encoder_dealloc(EncoderObject *self)
+CBOREncoder_dealloc(CBOREncoderObject *self)
 {
     Py_XDECREF(self->encoders);
     Py_XDECREF(self->output);
@@ -41,11 +43,11 @@ Encoder_dealloc(EncoderObject *self)
 }
 
 
-// Encoder.__new__(cls, *args, **kwargs)
+// CBOREncoder.__new__(cls, *args, **kwargs)
 static PyObject *
-Encoder_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
+CBOREncoder_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
 {
-    EncoderObject *self;
+    CBOREncoderObject *self;
 
     PyDateTime_IMPORT;
     if (!PyDateTimeAPI)
@@ -54,7 +56,7 @@ Encoder_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
     if (!_CBOAR_OrderedDict && _CBOAR_init_OrderedDict() == -1)
         return NULL;
 
-    self = (EncoderObject *) type->tp_alloc(type, 0);
+    self = (CBOREncoderObject *) type->tp_alloc(type, 0);
     if (self) {
         self->encoders = PyObject_CallObject(_CBOAR_OrderedDict, NULL);
         if (!self->encoders)
@@ -80,10 +82,10 @@ error:
 }
 
 
-// Encoder.__init__(self, fp=None, default_handler=None, timestamp_format=0,
-//                  value_sharing=False)
+// CBOREncoder.__init__(self, fp=None, default_handler=None,
+//                      timestamp_format=0, value_sharing=False)
 static int
-Encoder_init(EncoderObject *self, PyObject *args, PyObject *kwargs)
+CBOREncoder_init(CBOREncoderObject *self, PyObject *args, PyObject *kwargs)
 {
     static char *keywords[] = {
         "fp", "datetime_as_timestamp", "timezone", "value_sharing", "default",
@@ -96,11 +98,11 @@ Encoder_init(EncoderObject *self, PyObject *args, PyObject *kwargs)
                 &default_handler, &self->enc_style))
         return -1;
 
-    if (Encoder_set_fp(self, fp, NULL) == -1)
+    if (_CBOREncoder_set_fp(self, fp, NULL) == -1)
         return -1;
-    if (default_handler && Encoder_set_default(self, default_handler, NULL) == -1)
+    if (default_handler && _CBOREncoder_set_default(self, default_handler, NULL) == -1)
         return -1;
-    if (timezone && Encoder_set_timezone(self, timezone, NULL) == -1)
+    if (timezone && _CBOREncoder_set_timezone(self, timezone, NULL) == -1)
         return -1;
 
     return 0;
@@ -109,9 +111,9 @@ Encoder_init(EncoderObject *self, PyObject *args, PyObject *kwargs)
 
 // Property accessors ////////////////////////////////////////////////////////
 
-// Encoder._get_fp(self)
+// CBOREncoder._get_fp(self)
 static PyObject *
-Encoder_get_fp(EncoderObject *self, void *closure)
+_CBOREncoder_get_fp(CBOREncoderObject *self, void *closure)
 {
     PyObject *ret = PyMethod_GET_SELF(self->write);
     Py_INCREF(ret);
@@ -119,9 +121,9 @@ Encoder_get_fp(EncoderObject *self, void *closure)
 }
 
 
-// Encoder._set_fp(self, value)
+// CBOREncoder._set_fp(self, value)
 static int
-Encoder_set_fp(EncoderObject *self, PyObject *value, void *closure)
+_CBOREncoder_set_fp(CBOREncoderObject *self, PyObject *value, void *closure)
 {
     PyObject *tmp, *write;
 
@@ -149,18 +151,19 @@ Encoder_set_fp(EncoderObject *self, PyObject *value, void *closure)
 }
 
 
-// Encoder._get_default(self)
+// CBOREncoder._get_default(self)
 static PyObject *
-Encoder_get_default(EncoderObject *self, void *closure)
+_CBOREncoder_get_default(CBOREncoderObject *self, void *closure)
 {
     Py_INCREF(self->default_handler);
     return self->default_handler;
 }
 
 
-// Encoder._set_default(self, value)
+// CBOREncoder._set_default(self, value)
 static int
-Encoder_set_default(EncoderObject *self, PyObject *value, void *closure)
+_CBOREncoder_set_default(CBOREncoderObject *self, PyObject *value,
+                         void *closure)
 {
     PyObject *tmp;
 
@@ -184,18 +187,19 @@ Encoder_set_default(EncoderObject *self, PyObject *value, void *closure)
 }
 
 
-// Encoder._get_timezone(self)
+// CBOREncoder._get_timezone(self)
 static PyObject *
-Encoder_get_timezone(EncoderObject *self, void *closure)
+_CBOREncoder_get_timezone(CBOREncoderObject *self, void *closure)
 {
     Py_INCREF(self->timezone);
     return self->timezone;
 }
 
 
-// Encoder._set_timezone(self, value)
+// CBOREncoder._set_timezone(self, value)
 static int
-Encoder_set_timezone(EncoderObject *self, PyObject *value, void *closure)
+_CBOREncoder_set_timezone(CBOREncoderObject *self, PyObject *value,
+                          void *closure)
 {
     PyObject *tmp;
 
@@ -221,7 +225,7 @@ Encoder_set_timezone(EncoderObject *self, PyObject *value, void *closure)
 // Utility methods ///////////////////////////////////////////////////////////
 
 static int
-Encoder__write(EncoderObject *self, const char *buf, const int length)
+fp_write(CBOREncoderObject *self, const char *buf, const int length)
 {
     PyObject *bytes, *ret = NULL;
 
@@ -240,9 +244,9 @@ Encoder__write(EncoderObject *self, const char *buf, const int length)
 // reference. Returns NULL and sets an appropriate error if the module cannot
 // be imported or the specified type cannot be found within it
 static PyObject *
-Encoder__load_type(PyObject *type_tuple)
+load_type(PyObject *type_tuple)
 {
-    PyObject *mod_name, *module, *type_name, *type, *import_list;
+    PyObject *mod_name, *mod, *type_name, *type, *import_list;
 
     if (PyTuple_GET_SIZE(type_tuple) == 2) {
         mod_name = PyTuple_GET_ITEM(type_tuple, 0);
@@ -252,14 +256,14 @@ Encoder__load_type(PyObject *type_tuple)
             if (!import_list)
                 return NULL;
             Py_INCREF(type_name);
-            PyList_SET_ITEM(import_list, 0, type_name);
-            module = PyImport_ImportModuleLevelObject(
-                    mod_name, NULL, NULL, import_list, 0);
+            PyList_SET_ITEM(import_list, 0, type_name); // steals ref
+            mod = PyImport_ImportModuleLevelObject(
+                mod_name, NULL, NULL, import_list, 0);
             Py_DECREF(import_list);
-            if (!module)
+            if (!mod)
                 return NULL;
-            type = PyObject_GetAttr(module, type_name);
-            Py_DECREF(module);
+            type = PyObject_GetAttr(mod, type_name);
+            Py_DECREF(mod);
             return type;
         }
     }
@@ -272,10 +276,10 @@ Encoder__load_type(PyObject *type_tuple)
 
 
 // Given a deferred type item tuple from the self->encoders dictionary, attempt
-// to load the specified type (by calling Encoder__load_type) and replace the
+// to load the specified type (by calling load_type) and replace the
 // entry in the dictionary with the loaded type, mapping to the same handler
 static PyObject *
-Encoder__replace_type(EncoderObject *self, PyObject *item)
+replace_type(CBOREncoderObject *self, PyObject *item)
 {
     PyObject *enc_type, *encoder, *ret = NULL;
 
@@ -288,7 +292,7 @@ Encoder__replace_type(EncoderObject *self, PyObject *item)
     // only reference to it)
     Py_INCREF(enc_type);
     if (PyObject_DelItem(self->encoders, enc_type) == 0) {
-        ret = Encoder__load_type(enc_type);
+        ret = load_type(enc_type);
         if (ret && PyObject_SetItem(self->encoders, ret, encoder) == 0)
             // This DECREF might look unusual but at this point the encoders
             // dict has a ref to the new enc_type, so we want "our" ref to
@@ -300,9 +304,9 @@ Encoder__replace_type(EncoderObject *self, PyObject *item)
 }
 
 
-// Encoder._find_encoder(type)
+// CBOREncoder._find_encoder(type)
 static PyObject *
-Encoder_find_encoder(EncoderObject *self, PyObject *type)
+CBOREncoder_find_encoder(CBOREncoderObject *self, PyObject *type)
 {
     PyObject *enc_type, *items, *iter, *item, *ret;
 
@@ -317,7 +321,7 @@ Encoder_find_encoder(EncoderObject *self, PyObject *type)
                     enc_type = PyTuple_GET_ITEM(item, 0);
 
                     if (PyTuple_Check(enc_type))
-                        enc_type = Encoder__replace_type(self, item);
+                        enc_type = replace_type(self, item);
                     if (enc_type)
                         switch (PyObject_IsSubclass(type, enc_type)) {
                             case 1:
@@ -350,8 +354,8 @@ Encoder_find_encoder(EncoderObject *self, PyObject *type)
 // Regular encoding methods //////////////////////////////////////////////////
 
 static int
-Encoder__encode_length(EncoderObject *self, const uint8_t major_tag,
-                       const uint64_t length)
+encode_length(CBOREncoderObject *self, const uint8_t major_tag,
+              const uint64_t length)
 {
     LeadByte *lead;
     char buf[sizeof(LeadByte) + sizeof(uint64_t)];
@@ -360,60 +364,73 @@ Encoder__encode_length(EncoderObject *self, const uint8_t major_tag,
     lead->major = major_tag;
     if (length < 24) {
         lead->subtype = length;
-        return Encoder__write(self, buf, 1);
+        return fp_write(self, buf, 1);
     } else if (length <= UCHAR_MAX) {
         lead->subtype = 24;
         buf[1] = length;
-        return Encoder__write(self, buf, sizeof(uint8_t) + 1);
+        return fp_write(self, buf, sizeof(uint8_t) + 1);
     } else if (length <= USHRT_MAX) {
         lead->subtype = 25;
         *((uint16_t*)(buf + 1)) = htobe16(length);
-        return Encoder__write(self, buf, sizeof(uint16_t) + 1);
+        return fp_write(self, buf, sizeof(uint16_t) + 1);
     } else if (length <= UINT_MAX) {
         lead->subtype = 26;
         *((uint32_t*)(buf + 1)) = htobe32(length);
-        return Encoder__write(self, buf, sizeof(uint32_t) + 1);
+        return fp_write(self, buf, sizeof(uint32_t) + 1);
     } else {
         lead->subtype = 27;
         *((uint64_t*)(buf + 1)) = htobe64(length);
-        return Encoder__write(self, buf, sizeof(uint64_t) + 1);
+        return fp_write(self, buf, sizeof(uint64_t) + 1);
     }
 }
 
 
-// Encoder.encode_length(self, major_tag, length)
+// CBOREncoder.encode_length(self, major_tag, length)
 static PyObject *
-Encoder_encode_length(EncoderObject *self, PyObject *args)
+CBOREncoder_encode_length(CBOREncoderObject *self, PyObject *args)
 {
     uint8_t major_tag;
     uint64_t length;
 
     if (!PyArg_ParseTuple(args, "BK", &major_tag, &length))
         return NULL;
-    if (Encoder__encode_length(self, major_tag, length) == -1)
+    if (encode_length(self, major_tag, length) == -1)
         return NULL;
     Py_RETURN_NONE;
 }
 
 
 static int
-Encoder__encode_semantic(EncoderObject *self, const uint64_t tag,
-                         PyObject *value)
+encode_semantic(CBOREncoderObject *self, const uint64_t tag, PyObject *value)
 {
     PyObject *obj;
 
-    if (Encoder__encode_length(self, 6, tag) == -1)
+    if (encode_length(self, 6, tag) == -1)
         return -1;
-    // XXX Potential recursion
-    obj = Encoder_encode(self, value);
+    obj = CBOREncoder_encode(self, value);
     Py_XDECREF(obj);
     return obj == NULL ? -1 : 0;
 }
 
 
+// CBOREncoder.encode_semantic(self, tag)
 static PyObject *
-Encoder__encode_shared(EncoderObject *self, EncodeFunction *encoder,
-                       PyObject *value)
+CBOREncoder_encode_semantic(CBOREncoderObject *self, PyObject *value)
+{
+    CBORTagObject *tag;
+
+    if (!CBORTag_CheckExact(value))
+        return NULL;
+    tag = (CBORTagObject *) value;
+    if (encode_semantic(self, tag->tag, tag->value) == -1)
+        return NULL;
+    Py_RETURN_NONE;
+}
+
+
+static PyObject *
+encode_shared(CBOREncoderObject *self, EncodeFunction *encoder,
+              PyObject *value)
 {
     PyObject *id, *index, *tuple, *ret = NULL;
 
@@ -422,15 +439,16 @@ Encoder__encode_shared(EncoderObject *self, EncodeFunction *encoder,
         tuple = PyDict_GetItem(self->shared, id);
         if (self->value_sharing) {
             if (tuple) {
-                if (Encoder__encode_length(self, 6, 29) == 0)
-                    ret = Encoder_encode_int(self, PyTuple_GET_ITEM(tuple, 1));
+                if (encode_length(self, 6, 29) == 0)
+                    ret = CBOREncoder_encode_int(
+                            self, PyTuple_GET_ITEM(tuple, 1));
             } else {
                 index = PyLong_FromSsize_t(PyDict_Size(self->shared));
                 if (index) {
                     tuple = PyTuple_Pack(2, value, index);
                     if (tuple) {
                         if (PyDict_SetItem(self->shared, id, tuple) == 0)
-                            if (Encoder__encode_length(self, 6, 28) == 0)
+                            if (encode_length(self, 6, 28) == 0)
                                 ret = encoder(self, value);
                         Py_DECREF(tuple);
                     }
@@ -460,7 +478,7 @@ Encoder__encode_shared(EncoderObject *self, EncodeFunction *encoder,
 
 
 static PyObject *
-shared_callback(EncoderObject *self, PyObject *value)
+shared_callback(CBOREncoderObject *self, PyObject *value)
 {
     if (PyCallable_Check(self->shared_handler)) {
         return PyObject_CallFunctionObjArgs(
@@ -473,9 +491,9 @@ shared_callback(EncoderObject *self, PyObject *value)
 }
 
 
-// Encoder.encode_shared(self, encode_method, value)
+// CBOREncoder.encode_shared(self, encode_method, value)
 static PyObject *
-Encoder_encode_shared(EncoderObject *self, PyObject *args)
+CBOREncoder_encode_shared(CBOREncoderObject *self, PyObject *args)
 {
     PyObject *method, *value, *tmp, *ret = NULL;
 
@@ -483,7 +501,7 @@ Encoder_encode_shared(EncoderObject *self, PyObject *args)
         Py_INCREF(method);
         tmp = self->shared_handler;
         self->shared_handler = method;
-        ret = Encoder__encode_shared(self, &shared_callback, value);
+        ret = encode_shared(self, &shared_callback, value);
         self->shared_handler = tmp;
         Py_DECREF(method);
     }
@@ -491,23 +509,8 @@ Encoder_encode_shared(EncoderObject *self, PyObject *args)
 }
 
 
-// Encoder.encode_semantic(self, tag)
 static PyObject *
-Encoder_encode_semantic(EncoderObject *self, PyObject *value)
-{
-    TagObject *tag;
-
-    if (!Tag_CheckExact(value))
-        return NULL;
-    tag = (TagObject *) value;
-    if (Encoder__encode_semantic(self, tag->tag, tag->value) == -1)
-        return NULL;
-    Py_RETURN_NONE;
-}
-
-
-static PyObject *
-Encoder__encode_negative_int(PyObject *value)
+encode_negative_int(PyObject *value)
 {
     PyObject *neg, *one, *ret = NULL;
 
@@ -526,7 +529,7 @@ Encoder__encode_negative_int(PyObject *value)
 
 
 static PyObject *
-Encoder__encode_larger_int(EncoderObject *self, PyObject *value)
+encode_larger_int(CBOREncoderObject *self, PyObject *value)
 {
     PyObject *zero, *bits, *buf, *tmp, *ret = NULL;
     uint8_t major_tag;
@@ -542,14 +545,14 @@ Encoder__encode_larger_int(EncoderObject *self, PyObject *value)
         switch (PyObject_RichCompareBool(value, zero, Py_LT)) {
             case 1:
                 major_tag = 1;
-                tmp = Encoder__encode_negative_int(value);
+                tmp = encode_negative_int(value);
                 Py_DECREF(value);
                 value = tmp;
                 // fall-thru to positive case
             case 0:
                 val = PyLong_AsUnsignedLongLong(value);
                 if (!PyErr_Occurred()) {
-                    if (Encoder__encode_length(self, major_tag, val) == 0) {
+                    if (encode_length(self, major_tag, val) == 0) {
                         Py_INCREF(Py_None);
                         ret = Py_None;
                         break;
@@ -567,9 +570,10 @@ Encoder__encode_larger_int(EncoderObject *self, PyObject *value)
                         long length = PyLong_AsLong(bits);
                         if (!PyErr_Occurred()) {
                             buf = PyObject_CallMethod(
-                                    value, "to_bytes", "ls#", (length + 7) / 8, "big", 3);
+                                    value, "to_bytes", "ls#",
+                                    (length + 7) / 8, "big", 3);
                             if (buf) {
-                                if (Encoder__encode_semantic(self, major_tag, buf) == 0) {
+                                if (encode_semantic(self, major_tag, buf) == 0) {
                                     Py_INCREF(Py_None);
                                     ret = Py_None;
                                 }
@@ -590,9 +594,9 @@ Encoder__encode_larger_int(EncoderObject *self, PyObject *value)
 
 
 
-// Encoder.encode_int(self, value)
+// CBOREncoder.encode_int(self, value)
 static PyObject *
-Encoder_encode_int(EncoderObject *self, PyObject *value)
+CBOREncoder_encode_int(CBOREncoderObject *self, PyObject *value)
 {
     PyObject *ret = NULL;
     long val;
@@ -605,45 +609,45 @@ Encoder_encode_int(EncoderObject *self, PyObject *value)
         // majority of ints encoded will fall into this size
         if (val != -1 || !PyErr_Occurred()) {
             if (val >= 0) {
-                if (Encoder__encode_length(self, 0, val) == 0) {
+                if (encode_length(self, 0, val) == 0) {
                     Py_INCREF(Py_None);
                     ret = Py_None;
                 }
             } else {
                 // avoid overflow in the case where int_value == -2^31
                 val = -(val + 1);
-                if (Encoder__encode_length(self, 1, val) == 0) {
+                if (encode_length(self, 1, val) == 0) {
                     Py_INCREF(Py_None);
                     ret = Py_None;
                 }
             }
         }
     } else
-        ret = Encoder__encode_larger_int(self, value);
+        ret = encode_larger_int(self, value);
     return ret;
 }
 
 
-// Encoder.encode_bytes(self, value)
+// CBOREncoder.encode_bytes(self, value)
 static PyObject *
-Encoder_encode_bytes(EncoderObject *self, PyObject *value)
+CBOREncoder_encode_bytes(CBOREncoderObject *self, PyObject *value)
 {
     char *buf;
     Py_ssize_t length;
 
     if (PyBytes_AsStringAndSize(value, &buf, &length) == -1)
         return NULL;
-    if (Encoder__encode_length(self, 2, length) == -1)
+    if (encode_length(self, 2, length) == -1)
         return NULL;
-    if (Encoder__write(self, buf, length) == -1)
+    if (fp_write(self, buf, length) == -1)
         return NULL;
     Py_RETURN_NONE;
 }
 
 
-// Encoder.encode_bytearray(self, value)
+// CBOREncoder.encode_bytearray(self, value)
 static PyObject *
-Encoder_encode_bytearray(EncoderObject *self, PyObject *value)
+CBOREncoder_encode_bytearray(CBOREncoderObject *self, PyObject *value)
 {
     Py_ssize_t length;
 
@@ -652,17 +656,17 @@ Encoder_encode_bytearray(EncoderObject *self, PyObject *value)
         return NULL;
     }
     length = PyByteArray_GET_SIZE(value);
-    if (Encoder__encode_length(self, 2, length) == -1)
+    if (encode_length(self, 2, length) == -1)
         return NULL;
-    if (Encoder__write(self, PyByteArray_AS_STRING(value), length) == -1)
+    if (fp_write(self, PyByteArray_AS_STRING(value), length) == -1)
         return NULL;
     Py_RETURN_NONE;
 }
 
 
-// Encoder.encode_string(self, value)
+// CBOREncoder.encode_string(self, value)
 static PyObject *
-Encoder_encode_string(EncoderObject *self, PyObject *value)
+CBOREncoder_encode_string(CBOREncoderObject *self, PyObject *value)
 {
     char *buf;
     Py_ssize_t length;
@@ -670,17 +674,17 @@ Encoder_encode_string(EncoderObject *self, PyObject *value)
     buf = PyUnicode_AsUTF8AndSize(value, &length);
     if (!buf)
         return NULL;
-    if (Encoder__encode_length(self, 3, length) == -1)
+    if (encode_length(self, 3, length) == -1)
         return NULL;
-    if (Encoder__write(self, buf, length) == -1)
+    if (fp_write(self, buf, length) == -1)
         return NULL;
     Py_RETURN_NONE;
 }
 
 
-// Encoder.encode_float(self, value)
+// CBOREncoder.encode_float(self, value)
 static PyObject *
-Encoder_encode_float(EncoderObject *self, PyObject *value)
+CBOREncoder_encode_float(CBOREncoderObject *self, PyObject *value)
 {
     union {
         double f;
@@ -693,23 +697,23 @@ Encoder_encode_float(EncoderObject *self, PyObject *value)
         return NULL;
     switch (fpclassify(u.f)) {
         case FP_NAN:
-            if (Encoder__write(self, "\xF9\x7E\x00", 3) == -1)
+            if (fp_write(self, "\xF9\x7E\x00", 3) == -1)
                 return NULL;
             break;
         case FP_INFINITE:
             if (u.f > 0) {
-                if (Encoder__write(self, "\xF9\x7C\x00", 3) == -1)
+                if (fp_write(self, "\xF9\x7C\x00", 3) == -1)
                     return NULL;
             } else {
-                if (Encoder__write(self, "\xF9\xFC\x00", 3) == -1)
+                if (fp_write(self, "\xF9\xFC\x00", 3) == -1)
                     return NULL;
             }
             break;
         default:
-            if (Encoder__write(self, "\xFB", 1) == -1)
+            if (fp_write(self, "\xFB", 1) == -1)
                 return NULL;
             u.i = htobe64(u.i);
-            if (Encoder__write(self, u.buf, sizeof(double)) == -1)
+            if (fp_write(self, u.buf, sizeof(double)) == -1)
                 return NULL;
             break;
     }
@@ -717,139 +721,163 @@ Encoder_encode_float(EncoderObject *self, PyObject *value)
 }
 
 
-static PyObject *
-Encoder__encode_decimal_digits(EncoderObject *self, PyObject *args)
+// A variant of fp_classify for the decimal.Decimal type
+static int
+decimal_classify(PyObject *value)
 {
-    PyObject *digits, *exp, *sig, *ten, *tmp, *ret = NULL;
-    bool sign, sharing;
-
-    if (PyArg_ParseTuple(args, "pO!O!", &sign,
-                &PyTuple_Type, &digits, &PyLong_Type, &exp)) {
-        sig = PyLong_FromLong(0);
-        if (sig) {
-            ten = PyLong_FromLong(10);
-            if (ten) {
-                Py_ssize_t length = PyTuple_GET_SIZE(digits);
-                // for digit in digits: sig = (sig * 10) + digit
-                for (Py_ssize_t i = 0; i < length; ++i) {
-                    tmp = PyNumber_Multiply(sig, ten);
-                    if (!tmp)
-                        break;
-                    Py_DECREF(sig);
-                    sig = tmp;
-                    tmp = PyNumber_Add(sig, PyTuple_GET_ITEM(digits, i));
-                    if (!tmp)
-                        break;
-                    Py_DECREF(sig);
-                    sig = tmp;
-                }
-                Py_DECREF(ten);
-                // if sign: sig = -sig
-                if (tmp && sign) {
-                    tmp = PyNumber_Negative(sig);
-                    if (tmp) {
-                        Py_DECREF(sig);
-                        sig = tmp;
-                    }
-                }
-                if (tmp) {
-                    sharing = self->value_sharing;
-                    self->value_sharing = false;
-                    args = PyTuple_Pack(2, exp, sig);
-                    if (args) {
-                        if (Encoder__encode_semantic(self, 4, args) == 0) {
-                            Py_INCREF(Py_None);
-                            ret = Py_None;
-                        }
-                        Py_DECREF(args);
-                    }
-                    self->value_sharing = sharing;
-                }
-            }
-            Py_DECREF(sig);
-        }
-    }
-    return ret;
-}
-
-
-// Encoder.encode_decimal(self, value)
-static PyObject *
-Encoder_encode_decimal(EncoderObject *self, PyObject *value)
-{
-    PyObject *tmp, *tuple, *zero, *ret = NULL;
+    PyObject *tmp;
 
     tmp = PyObject_CallMethodObjArgs(value, _CBOAR_str_is_nan, NULL);
     if (tmp) {
-        // NaN case
-        if (PyObject_IsTrue(tmp))
-            if (Encoder__write(self, "\xF9\x7E\x00", 3) == 0) {
-                Py_INCREF(Py_None);
-                ret = Py_None;
-            }
-        Py_DECREF(tmp);
-    }
-    // XXX What about Encoder__write error case?
-    if (!ret) {
-        tmp = PyObject_CallMethodObjArgs(value, _CBOAR_str_is_infinite, NULL);
-        if (tmp) {
-            // Infinite case
-            if (PyObject_IsTrue(tmp)) {
-                zero = PyLong_FromLong(0);
-                if (zero) {
-                    switch (PyObject_RichCompareBool(value, zero, Py_GT)) {
-                        case 1:
-                            if (Encoder__write(self, "\xF9\x7C\x00", 3) == 0) {
-                                Py_INCREF(Py_None);
-                                ret = Py_None;
-                            }
-                            break;
-                        case 0:
-                            if (Encoder__write(self, "\xF9\xFC\x00", 3) == 0) {
-                                Py_INCREF(Py_None);
-                                ret = Py_None;
-                            }
-                            break;
-                        case -1:
-                            // error case
-                            break;
-                        default:
-                            assert(0);
-                    }
-                    Py_DECREF(zero);
+        if (PyObject_IsTrue(tmp)) {
+            Py_DECREF(tmp);
+            return DC_NAN;
+        } else {
+            Py_DECREF(tmp);
+            tmp = PyObject_CallMethodObjArgs(
+                    value, _CBOAR_str_is_infinite, NULL);
+            if (tmp) {
+                if (PyObject_IsTrue(tmp)) {
+                    Py_DECREF(tmp);
+                    return DC_INFINITE;
+                } else {
+                    Py_DECREF(tmp);
+                    return DC_NORMAL;
                 }
             }
-            Py_DECREF(tmp);
         }
     }
-    // XXX What about fall-thru from error case above?
-    if (!ret) {
-        tuple = PyObject_CallMethodObjArgs(value, _CBOAR_str_as_tuple, NULL);
-        if (tuple) {
-            // Regular case
-            ret = Encoder__encode_decimal_digits(self, tuple);
-            Py_DECREF(tuple);
-        }
+    return DC_ERROR;
+}
+
+
+// Returns 1 if the decimal.Decimal value is < 0, 0 if it's >= 0, and -1 on
+// error
+static int
+decimal_negative(PyObject *value)
+{
+    PyObject *zero;
+    int ret = -1;
+
+    zero = PyLong_FromLong(0);
+    if (zero) {
+        ret = PyObject_RichCompareBool(value, zero, Py_GT);
+        Py_DECREF(zero);
     }
     return ret;
 }
 
 
 static PyObject *
-Encoder__encode_timestamp(EncoderObject *self, PyObject *timestamp)
+encode_decimal_digits(CBOREncoderObject *self, PyObject *value)
+{
+    PyObject *tuple, *digits, *exp, *sig, *ten, *tmp, *ret = NULL;
+    bool sign, sharing;
+
+    tuple = PyObject_CallMethodObjArgs(value, _CBOAR_str_as_tuple, NULL);
+    if (tuple) {
+        if (PyArg_ParseTuple(tuple, "pOO", &sign, &digits, &exp)) {
+            sig = PyLong_FromLong(0);
+            if (sig) {
+                ten = PyLong_FromLong(10);
+                if (ten) {
+                    Py_ssize_t length = PyTuple_GET_SIZE(digits);
+                    // for digit in digits: sig = (sig * 10) + digit
+                    for (Py_ssize_t i = 0; i < length; ++i) {
+                        tmp = PyNumber_Multiply(sig, ten);
+                        if (!tmp)
+                            break;
+                        Py_DECREF(sig);
+                        sig = tmp;
+                        tmp = PyNumber_Add(sig, PyTuple_GET_ITEM(digits, i));
+                        if (!tmp)
+                            break;
+                        Py_DECREF(sig);
+                        sig = tmp;
+                    }
+                    Py_DECREF(ten);
+                    // if sign: sig = -sig
+                    if (tmp && sign) {
+                        tmp = PyNumber_Negative(sig);
+                        if (tmp) {
+                            Py_DECREF(sig);
+                            sig = tmp;
+                        }
+                    }
+                    if (tmp) {
+                        sharing = self->value_sharing;
+                        self->value_sharing = false;
+                        value = PyTuple_Pack(2, exp, sig);
+                        if (value) {
+                            if (encode_semantic(self, 4, value) == 0) {
+                                Py_INCREF(Py_None);
+                                ret = Py_None;
+                            }
+                            Py_DECREF(value);
+                        }
+                        self->value_sharing = sharing;
+                    }
+                }
+                Py_DECREF(sig);
+            }
+        }
+        Py_DECREF(tuple);
+    }
+    return ret;
+}
+
+
+// CBOREncoder.encode_decimal(self, value)
+static PyObject *
+CBOREncoder_encode_decimal(CBOREncoderObject *self, PyObject *value)
+{
+    switch (decimal_classify(value)) {
+        case DC_NAN:
+            if (fp_write(self, "\xF9\x7E\x00", 3) == -1)
+                return NULL;
+            break;
+        case DC_INFINITE:
+            switch (decimal_negative(value)) {
+                case 1:
+                    if (fp_write(self, "\xF9\x7C\x00", 3) == -1)
+                        return NULL;
+                    break;
+                case 0:
+                    if (fp_write(self, "\xF9\xFC\x00", 3) == -1)
+                        return NULL;
+                    break;
+                case -1:
+                    return NULL;
+                default:
+                    assert(0);
+            }
+            break;
+        case DC_NORMAL:
+            return encode_decimal_digits(self, value);
+        case DC_ERROR:
+            return NULL;
+        default:
+            assert(0);
+    }
+    Py_RETURN_NONE;
+}
+
+
+static PyObject *
+encode_timestamp(CBOREncoderObject *self, PyObject *timestamp)
 {
     PyObject *ret = NULL;
 
-    if (Encoder__write(self, "\xC1", 1) == 0) {
+    if (fp_write(self, "\xC1", 1) == 0) {
         double d = PyFloat_AS_DOUBLE(timestamp);
         if (d == trunc(d)) {
             PyObject *i = PyLong_FromDouble(d);
             if (i) {
-                ret = Encoder_encode_int(self, i);
+                ret = CBOREncoder_encode_int(self, i);
                 Py_DECREF(i);
             }
         } else {
-            ret = Encoder_encode_float(self, timestamp);
+            ret = CBOREncoder_encode_float(self, timestamp);
         }
     }
     return ret;
@@ -857,7 +885,7 @@ Encoder__encode_timestamp(EncoderObject *self, PyObject *timestamp)
 
 
 static PyObject *
-Encoder__encode_datestr(EncoderObject *self, PyObject *datestr)
+encode_datestr(CBOREncoderObject *self, PyObject *datestr)
 {
     char *buf;
     Py_ssize_t length, match;
@@ -868,15 +896,15 @@ Encoder__encode_datestr(EncoderObject *self, PyObject *datestr)
     if (match != -1) {
         buf = PyUnicode_AsUTF8AndSize(datestr, &length);
         if (buf) {
-            if (Encoder__write(self, "\xC0", 1) == 0) {
+            if (fp_write(self, "\xC0", 1) == 0) {
                 if (match) {
-                    if (Encoder__encode_length(self, 3, length - 5) == 0)
-                        if (Encoder__write(self, buf, length - 6) == 0)
-                            if (Encoder__write(self, "Z", 1) == 0)
+                    if (encode_length(self, 3, length - 5) == 0)
+                        if (fp_write(self, buf, length - 6) == 0)
+                            if (fp_write(self, "Z", 1) == 0)
                                 Py_RETURN_NONE;
                 } else {
-                    if (Encoder__encode_length(self, 3, length) == 0)
-                        if (Encoder__write(self, buf, length) == 0)
+                    if (encode_length(self, 3, length) == 0)
+                        if (fp_write(self, buf, length) == 0)
                             Py_RETURN_NONE;
                 }
             }
@@ -886,9 +914,9 @@ Encoder__encode_datestr(EncoderObject *self, PyObject *datestr)
 }
 
 
-// Encoder.encode_datetime(self, value)
+// CBOREncoder.encode_datetime(self, value)
 static PyObject *
-Encoder_encode_datetime(EncoderObject *self, PyObject *value)
+CBOREncoder_encode_datetime(CBOREncoderObject *self, PyObject *value)
 {
     PyObject *tmp, *ret = NULL;
 
@@ -922,12 +950,12 @@ Encoder_encode_datetime(EncoderObject *self, PyObject *value)
                 tmp = PyObject_CallMethodObjArgs(
                         value, _CBOAR_str_timestamp, NULL);
                 if (tmp)
-                    ret = Encoder__encode_timestamp(self, tmp);
+                    ret = encode_timestamp(self, tmp);
             } else {
                 tmp = PyObject_CallMethodObjArgs(
                         value, _CBOAR_str_isoformat, NULL);
                 if (tmp)
-                    ret = Encoder__encode_datestr(self, tmp);
+                    ret = encode_datestr(self, tmp);
             }
             Py_XDECREF(tmp);
             Py_DECREF(value);
@@ -937,9 +965,9 @@ Encoder_encode_datetime(EncoderObject *self, PyObject *value)
 }
 
 
-// Encoder.encode_date(self, value)
+// CBOREncoder.encode_date(self, value)
 static PyObject *
-Encoder_encode_date(EncoderObject *self, PyObject *value)
+CBOREncoder_encode_date(CBOREncoderObject *self, PyObject *value)
 {
     PyObject *datetime, *ret = NULL;
 
@@ -951,7 +979,7 @@ Encoder_encode_date(EncoderObject *self, PyObject *value)
                 0, 0, 0, 0, self->timezone,
                 PyDateTimeAPI->DateTimeType);
         if (datetime) {
-            ret = Encoder_encode_datetime(self, datetime);
+            ret = CBOREncoder_encode_datetime(self, datetime);
             Py_DECREF(datetime);
             return ret;
         }
@@ -960,44 +988,44 @@ Encoder_encode_date(EncoderObject *self, PyObject *value)
 }
 
 
-// Encoder.encode_boolean(self, value)
+// CBOREncoder.encode_boolean(self, value)
 static PyObject *
-Encoder_encode_boolean(EncoderObject *self, PyObject *value)
+CBOREncoder_encode_boolean(CBOREncoderObject *self, PyObject *value)
 {
     if (PyObject_IsTrue(value)) {
-        if (Encoder__write(self, "\xF5", 1) == -1)
+        if (fp_write(self, "\xF5", 1) == -1)
             return NULL;
     } else {
-        if (Encoder__write(self, "\xF4", 1) == -1)
+        if (fp_write(self, "\xF4", 1) == -1)
             return NULL;
     }
     Py_RETURN_NONE;
 }
 
 
-// Encoder.encode_none(self, value)
+// CBOREncoder.encode_none(self, value)
 static PyObject *
-Encoder_encode_none(EncoderObject *self, PyObject *value)
+CBOREncoder_encode_none(CBOREncoderObject *self, PyObject *value)
 {
-    if (Encoder__write(self, "\xF6", 1) == -1)
+    if (fp_write(self, "\xF6", 1) == -1)
         return NULL;
     Py_RETURN_NONE;
 }
 
 
-// Encoder.encode_undefined(self, value)
+// CBOREncoder.encode_undefined(self, value)
 static PyObject *
-Encoder_encode_undefined(EncoderObject *self, PyObject *value)
+CBOREncoder_encode_undefined(CBOREncoderObject *self, PyObject *value)
 {
-    if (Encoder__write(self, "\xF7", 1) == -1)
+    if (fp_write(self, "\xF7", 1) == -1)
         return NULL;
     Py_RETURN_NONE;
 }
 
 
-// Encoder.encode_simple(self, (value,))
+// CBOREncoder.encode_simple(self, (value,))
 static PyObject *
-Encoder_encode_simple(EncoderObject *self, PyObject *args)
+CBOREncoder_encode_simple(CBOREncoderObject *self, PyObject *args)
 {
     uint8_t value;
 
@@ -1005,21 +1033,21 @@ Encoder_encode_simple(EncoderObject *self, PyObject *args)
         return NULL;
     if (value < 20) {
         value |= 0xE0;
-        if (Encoder__write(self, (char *)&value, 1) == -1)
+        if (fp_write(self, (char *)&value, 1) == -1)
             return NULL;
     } else {
-        if (Encoder__write(self, "\xF8", 1) == -1)
+        if (fp_write(self, "\xF8", 1) == -1)
             return NULL;
-        if (Encoder__write(self, (char *)&value, 1) == -1)
+        if (fp_write(self, (char *)&value, 1) == -1)
             return NULL;
     }
     Py_RETURN_NONE;
 }
 
 
-// Encoder.encode_rational(self, value)
+// CBOREncoder.encode_rational(self, value)
 static PyObject *
-Encoder_encode_rational(EncoderObject *self, PyObject *value)
+CBOREncoder_encode_rational(CBOREncoderObject *self, PyObject *value)
 {
     PyObject *tuple, *num, *den, *ret = NULL;
     bool sharing;
@@ -1032,7 +1060,7 @@ Encoder_encode_rational(EncoderObject *self, PyObject *value)
             if (tuple) {
                 sharing = self->value_sharing;
                 self->value_sharing = false;
-                if (Encoder__encode_semantic(self, 30, tuple) == 0)
+                if (encode_semantic(self, 30, tuple) == 0)
                     ret = Py_None;
                 self->value_sharing = sharing;
                 Py_DECREF(tuple);
@@ -1046,15 +1074,15 @@ Encoder_encode_rational(EncoderObject *self, PyObject *value)
 }
 
 
-// Encoder.encode_regex(self, value)
+// CBOREncoder.encode_regex(self, value)
 static PyObject *
-Encoder_encode_regex(EncoderObject *self, PyObject *value)
+CBOREncoder_encode_regex(CBOREncoderObject *self, PyObject *value)
 {
     PyObject *pattern, *ret = NULL;
 
     pattern = PyObject_GetAttr(value, _CBOAR_str_pattern);
     if (pattern) {
-        if (Encoder__encode_semantic(self, 35, pattern) == 0)
+        if (encode_semantic(self, 35, pattern) == 0)
             ret = Py_None;
         Py_DECREF(pattern);
     }
@@ -1063,15 +1091,15 @@ Encoder_encode_regex(EncoderObject *self, PyObject *value)
 }
 
 
-// Encoder.encode_mime(self, value)
+// CBOREncoder.encode_mime(self, value)
 static PyObject *
-Encoder_encode_mime(EncoderObject *self, PyObject *value)
+CBOREncoder_encode_mime(CBOREncoderObject *self, PyObject *value)
 {
     PyObject *buf, *ret = NULL;
 
     buf = PyObject_CallMethodObjArgs(value, _CBOAR_str_as_string, NULL);
     if (buf) {
-        if (Encoder__encode_semantic(self, 36, buf) == 0)
+        if (encode_semantic(self, 36, buf) == 0)
             ret = Py_None;
         Py_DECREF(buf);
     }
@@ -1080,15 +1108,15 @@ Encoder_encode_mime(EncoderObject *self, PyObject *value)
 }
 
 
-// Encoder.encode_uuid(self, value)
+// CBOREncoder.encode_uuid(self, value)
 static PyObject *
-Encoder_encode_uuid(EncoderObject *self, PyObject *value)
+CBOREncoder_encode_uuid(CBOREncoderObject *self, PyObject *value)
 {
     PyObject *bytes, *ret = NULL;
 
     bytes = PyObject_GetAttr(value, _CBOAR_str_bytes);
     if (bytes) {
-        if (Encoder__encode_semantic(self, 37, bytes) == 0)
+        if (encode_semantic(self, 37, bytes) == 0)
             ret = Py_None;
         Py_DECREF(bytes);
     }
@@ -1098,7 +1126,7 @@ Encoder_encode_uuid(EncoderObject *self, PyObject *value)
 
 
 static PyObject *
-Encoder__encode_array(EncoderObject *self, PyObject *value)
+encode_array(CBOREncoderObject *self, PyObject *value)
 {
     PyObject **items, *fast, *ret = NULL;
     Py_ssize_t length;
@@ -1107,17 +1135,18 @@ Encoder__encode_array(EncoderObject *self, PyObject *value)
     if (fast) {
         length = PySequence_Fast_GET_SIZE(fast);
         items = PySequence_Fast_ITEMS(fast);
-        if (Encoder__encode_length(self, 4, length) == 0) {
+        if (encode_length(self, 4, length) == 0) {
             while (length) {
-                // XXX Recursion
-                // XXX Missing DECREFs on None return
-                if (!Encoder_encode(self, *items))
+                ret = CBOREncoder_encode(self, *items);
+                if (ret)
+                    Py_DECREF(ret);
+                else
                     goto error;
                 items++;
                 length--;
             }
+            Py_INCREF(Py_None);
             ret = Py_None;
-            Py_INCREF(ret);
         }
 error:
         Py_DECREF(fast);
@@ -1126,27 +1155,35 @@ error:
 }
 
 
-// Encoder.encode_array(self, value)
+// CBOREncoder.encode_array(self, value)
 static PyObject *
-Encoder_encode_array(EncoderObject *self, PyObject *value)
+CBOREncoder_encode_array(CBOREncoderObject *self, PyObject *value)
 {
-    return Encoder__encode_shared(self, &Encoder__encode_array, value);
+    return encode_shared(self, &encode_array, value);
 }
 
 
 static PyObject *
-Encoder__encode_dict(EncoderObject *self, PyObject *value)
+encode_dict(CBOREncoderObject *self, PyObject *value)
 {
-    PyObject *key, *val;
+    PyObject *key, *val, *ret;
     Py_ssize_t pos = 0;
 
-    if (Encoder__encode_length(self, 5, PyDict_Size(value)) == 0) {
+    if (encode_length(self, 5, PyDict_Size(value)) == 0) {
         while (PyDict_Next(value, &pos, &key, &val)) {
-            // XXX Recursion
-            // XXX Missing DECREFs on None return
-            if (!Encoder_encode(self, key))
+            Py_INCREF(key);
+            ret = CBOREncoder_encode(self, key);
+            Py_DECREF(key);
+            if (ret)
+                Py_DECREF(ret);
+            else
                 return NULL;
-            if (!Encoder_encode(self, val))
+            Py_INCREF(val);
+            ret = CBOREncoder_encode(self, val);
+            Py_DECREF(val);
+            if (ret)
+                Py_DECREF(ret);
+            else
                 return NULL;
         }
     }
@@ -1155,7 +1192,7 @@ Encoder__encode_dict(EncoderObject *self, PyObject *value)
 
 
 static PyObject *
-Encoder__encode_mapping(EncoderObject *self, PyObject *value)
+encode_mapping(CBOREncoderObject *self, PyObject *value)
 {
     PyObject **items, *list, *fast, *ret = NULL;
     Py_ssize_t length;
@@ -1166,13 +1203,17 @@ Encoder__encode_mapping(EncoderObject *self, PyObject *value)
         if (fast) {
             length = PySequence_Fast_GET_SIZE(fast);
             items = PySequence_Fast_ITEMS(fast);
-            if (Encoder__encode_length(self, 5, length) == 0) {
+            if (encode_length(self, 5, length) == 0) {
                 while (length) {
-                    // XXX Recursion
-                    // XXX Missing DECREFs on None return
-                    if (!Encoder_encode(self, PyTuple_GET_ITEM(*items, 0)))
+                    ret = CBOREncoder_encode(self, PyTuple_GET_ITEM(*items, 0));
+                    if (ret)
+                        Py_DECREF(ret);
+                    else
                         goto error;
-                    if (!Encoder_encode(self, PyTuple_GET_ITEM(*items, 1)))
+                    ret = CBOREncoder_encode(self, PyTuple_GET_ITEM(*items, 1));
+                    if (ret)
+                        Py_DECREF(ret);
+                    else
                         goto error;
                     items++;
                     length--;
@@ -1190,25 +1231,25 @@ error:
 
 
 static PyObject *
-Encoder__encode_map(EncoderObject *self, PyObject *value)
+CBOREncoder__encode_map(CBOREncoderObject *self, PyObject *value)
 {
     if (PyDict_Check(value))
-        return Encoder__encode_dict(self, value);
+        return encode_dict(self, value);
     else
-        return Encoder__encode_mapping(self, value);
+        return encode_mapping(self, value);
 }
 
 
-// Encoder.encode_map(self, value)
+// CBOREncoder.encode_map(self, value)
 static PyObject *
-Encoder_encode_map(EncoderObject *self, PyObject *value)
+CBOREncoder_encode_map(CBOREncoderObject *self, PyObject *value)
 {
-    return Encoder__encode_shared(self, &Encoder__encode_map, value);
+    return encode_shared(self, &CBOREncoder__encode_map, value);
 }
 
 
 static PyObject *
-Encoder__encode_set(EncoderObject *self, PyObject *value)
+encode_set(CBOREncoderObject *self, PyObject *value)
 {
     Py_ssize_t length;
     PyObject *iter, *item, *ret = NULL;
@@ -1217,20 +1258,19 @@ Encoder__encode_set(EncoderObject *self, PyObject *value)
     if (length != -1) {
         iter = PyObject_GetIter(value);
         if (iter) {
-            if (Encoder__encode_length(self, 6, 258) == 0) {
-                if (Encoder__encode_length(self, 4, length) == 0) {
+            if (encode_length(self, 6, 258) == 0) {
+                if (encode_length(self, 4, length) == 0) {
                     while ((item = PyIter_Next(iter))) {
-                        // XXX Recursion
-                        // XXX Missing DECREFs on None return
-                        if (!Encoder_encode(self, item)) {
-                            Py_DECREF(item);
-                            goto error;
-                        }
+                        ret = CBOREncoder_encode(self, item);
                         Py_DECREF(item);
+                        if (ret)
+                            Py_DECREF(ret);
+                        else
+                            goto error;
                     }
                     if (!PyErr_Occurred()) {
+                        Py_INCREF(Py_None);
                         ret = Py_None;
-                        Py_INCREF(ret);
                     }
                 }
             }
@@ -1242,19 +1282,19 @@ error:
 }
 
 
-// Encoder.encode_set(self, value)
+// CBOREncoder.encode_set(self, value)
 static PyObject *
-Encoder_encode_set(EncoderObject *self, PyObject *value)
+CBOREncoder_encode_set(CBOREncoderObject *self, PyObject *value)
 {
-    return Encoder__encode_shared(self, &Encoder__encode_set, value);
+    return encode_shared(self, &encode_set, value);
 }
 
 
 // Canonical encoding methods ////////////////////////////////////////////////
 
-// Encoder.encode_minimal_float(self, value)
+// CBOREncoder.encode_minimal_float(self, value)
 static PyObject *
-Encoder_encode_minimal_float(EncoderObject *self, PyObject *value)
+CBOREncoder_encode_minimal_float(CBOREncoderObject *self, PyObject *value)
 {
     union {
         double f;
@@ -1278,15 +1318,15 @@ Encoder_encode_minimal_float(EncoderObject *self, PyObject *value)
         return NULL;
     switch (fpclassify(u_double.f)) {
         case FP_NAN:
-            if (Encoder__write(self, "\xF9\x7E\x00", 3) == -1)
+            if (fp_write(self, "\xF9\x7E\x00", 3) == -1)
                 return NULL;
             break;
         case FP_INFINITE:
             if (u_double.f > 0) {
-                if (Encoder__write(self, "\xF9\x7C\x00", 3) == -1)
+                if (fp_write(self, "\xF9\x7C\x00", 3) == -1)
                     return NULL;
             } else {
-                if (Encoder__write(self, "\xF9\xFC\x00", 3) == -1)
+                if (fp_write(self, "\xF9\xFC\x00", 3) == -1)
                     return NULL;
             }
             break;
@@ -1295,22 +1335,22 @@ Encoder_encode_minimal_float(EncoderObject *self, PyObject *value)
             if (u_single.f == u_double.f) {
                 u_half.i = pack_float16(u_single.f);
                 if (unpack_float16(u_half.i) == u_single.f) {
-                    if (Encoder__write(self, "\xF9", 1) == -1)
+                    if (fp_write(self, "\xF9", 1) == -1)
                         return NULL;
-                    if (Encoder__write(self, u_half.buf, sizeof(uint16_t)) == -1)
+                    if (fp_write(self, u_half.buf, sizeof(uint16_t)) == -1)
                         return NULL;
                 } else {
-                    if (Encoder__write(self, "\xFA", 1) == -1)
+                    if (fp_write(self, "\xFA", 1) == -1)
                         return NULL;
                     u_single.i = htobe32(u_single.i);
-                    if (Encoder__write(self, u_single.buf, sizeof(float)) == -1)
+                    if (fp_write(self, u_single.buf, sizeof(float)) == -1)
                         return NULL;
                 }
             } else {
-                if (Encoder__write(self, "\xFB", 1) == -1)
+                if (fp_write(self, "\xFB", 1) == -1)
                     return NULL;
                 u_double.i = htobe64(u_double.i);
-                if (Encoder__write(self, u_double.buf, sizeof(double)) == -1)
+                if (fp_write(self, u_double.buf, sizeof(double)) == -1)
                     return NULL;
             }
             break;
@@ -1319,250 +1359,275 @@ Encoder_encode_minimal_float(EncoderObject *self, PyObject *value)
 }
 
 
-static int
-Encoder__encode_canonical_sortable(EncoderObject *self, PyObject *list)
+static PyObject *
+encode_canonical_map_list(CBOREncoderObject *self, PyObject *list)
 {
+    PyObject *bytes, *ret;
     Py_ssize_t index;
 
-    if (PyList_Sort(list) == 0) {
-        if (Encoder__encode_length(self, 5, PyList_GET_SIZE(list)) == 0) {
-            for (index = 0; index < PyList_GET_SIZE(list); ++index) {
-                // XXX Recursion
-                // XXX Missing DECREF on None return
-                if (!Encoder_encode(self,
-                            PyTuple_GET_ITEM(PyList_GET_ITEM(list, index), 2)))
-                    return 0;
-                if (!Encoder_encode(self,
-                            PyTuple_GET_ITEM(PyList_GET_ITEM(list, index), 3)))
-                    return 0;
-            }
-        } else
-            return 0;
+    if (PyList_Sort(list) == -1)
+        return NULL;
+    if (encode_length(self, 5, PyList_GET_SIZE(list)) == -1)
+        return NULL;
+    for (index = 0; index < PyList_GET_SIZE(list); ++index) {
+        // We already have the encoded form of the key so just write it out
+        bytes = PyTuple_GET_ITEM(PyList_GET_ITEM(list, index), 1);
+        if (fp_write(self, PyBytes_AS_STRING(bytes), PyBytes_GET_SIZE(bytes)) == -1)
+            return NULL;
+        ret = CBOREncoder_encode(self,
+                PyTuple_GET_ITEM(PyList_GET_ITEM(list, index), 3));
+        if (ret)
+            Py_DECREF(ret);
+        else
+            return NULL;
     }
-    return 1;
+    Py_RETURN_NONE;
 }
 
 
-static int
-Encoder__encode_canonical_dict(EncoderObject *self, PyObject *value)
+static PyObject *
+dict_to_canonical_list(CBOREncoderObject *self, PyObject *value)
 {
-    PyObject *to_sort, *bytes, *length, *key, *val;
+    PyObject *bytes, *length, *key, *val, *tuple, *ret, *list;
     Py_ssize_t index, pos;
-    int ret = 0;
 
-    to_sort = PyList_New(PyDict_Size(value));
-    if (to_sort) {
-        ret = 1;
+    ret = list = PyList_New(PyDict_Size(value));
+    if (list) {
         pos = 0;
         index = 0;
         while (ret && PyDict_Next(value, &pos, &key, &val)) {
             Py_INCREF(key);
-            bytes = Encoder_encode_to_bytes(self, key);
+            bytes = CBOREncoder_encode_to_bytes(self, key);
+            Py_DECREF(key);
             if (bytes) {
                 length = PyLong_FromSsize_t(PyBytes_GET_SIZE(bytes));
                 if (length) {
-                    PyList_SET_ITEM(to_sort, index,
-                            PyTuple_Pack(4, length, bytes, key, val));
-                    if (!PyList_GET_ITEM(to_sort, index))
-                        ret = 0;
+                    tuple = PyTuple_Pack(4, length, bytes, key, val);
+                    if (tuple)
+                        PyList_SET_ITEM(list, index, tuple); // steals ref
+                    else
+                        ret = NULL;
                     index++;
                     Py_DECREF(length);
-                }
+                } else
+                    ret = NULL;
                 Py_DECREF(bytes);
-            }
-            Py_DECREF(key);
+            } else
+                ret = NULL;
         }
-        if (ret)
-            ret = Encoder__encode_canonical_sortable(self, to_sort);
-        Py_DECREF(to_sort);
+        if (!ret)
+            Py_DECREF(list);
     }
     return ret;
 }
 
 
-static int
-Encoder__encode_canonical_mapping(EncoderObject *self, PyObject *value)
+static PyObject *
+mapping_to_canonical_list(CBOREncoderObject *self, PyObject *value)
 {
-    PyObject **items, *to_sort, *list, *fast, *bytes, *length;
+    PyObject **items, *map_items, *fast, *bytes, *length, *tuple, *ret, *list;
     Py_ssize_t fast_len, index;
-    int ret = 0;
 
-    to_sort = PyList_New(PyMapping_Size(value));
-    if (to_sort) {
-        list = PyMapping_Items(value);
-        if (list) {
-            fast = PySequence_Fast(list, "internal error");
+    ret = list = PyList_New(PyMapping_Size(value));
+    if (list) {
+        map_items = PyMapping_Items(value);
+        if (map_items) {
+            fast = PySequence_Fast(map_items, "internal error");
             if (fast) {
-                ret = 1;
                 index = 0;
                 fast_len = PySequence_Fast_GET_SIZE(fast);
                 items = PySequence_Fast_ITEMS(fast);
                 while (ret && fast_len) {
-                    bytes = Encoder_encode_to_bytes(self, PyTuple_GET_ITEM(*items, 0));
+                    bytes = CBOREncoder_encode_to_bytes(self,
+                        PyTuple_GET_ITEM(*items, 0));
                     if (bytes) {
                         length = PyLong_FromSsize_t(PyBytes_GET_SIZE(bytes));
                         if (length) {
-                            PyList_SET_ITEM(to_sort, index,
-                                    PyTuple_Pack(4, length, bytes,
-                                        PyTuple_GET_ITEM(*items, 0),
-                                        PyTuple_GET_ITEM(*items, 1)));
-                            if (!PyList_GET_ITEM(to_sort, index))
-                                ret = 0;
+                            tuple = PyTuple_Pack(4,
+                                length, bytes,
+                                PyTuple_GET_ITEM(*items, 0),
+                                PyTuple_GET_ITEM(*items, 1));
+                            if (tuple)
+                                PyList_SET_ITEM(list, index, tuple); // steals ref
+                            else
+                                ret = NULL;
                             Py_DECREF(length);
-                        }
+                        } else
+                            ret = NULL;
                         Py_DECREF(bytes);
-                    }
+                    } else
+                        ret = NULL;
                     items++;
                     fast_len--;
                 }
                 Py_DECREF(fast);
-            }
+            } else
+                ret = NULL;
+            Py_DECREF(map_items);
+        } else
+            ret = NULL;
+        if (!ret)
             Py_DECREF(list);
-        }
-        if (ret)
-            ret = Encoder__encode_canonical_sortable(self, to_sort);
-        Py_DECREF(to_sort);
     }
     return ret;
 }
 
 
 static PyObject *
-Encoder__encode_canonical_map(EncoderObject *self, PyObject *value)
+encode_canonical_map(CBOREncoderObject *self, PyObject *value)
 {
-    int ret;
+    PyObject *list, *ret = NULL;
 
     if (PyDict_Check(value))
-        ret = Encoder__encode_canonical_dict(self, value);
+        list = dict_to_canonical_list(self, value);
     else
-        ret = Encoder__encode_canonical_mapping(self, value);
-    if (ret)
-        Py_RETURN_NONE;
-    else
-        return NULL;
+        list = mapping_to_canonical_list(self, value);
+    if (list) {
+        ret = encode_canonical_map_list(self, list);
+        Py_DECREF(list);
+    }
+    return ret;
 }
 
 
 static PyObject *
-Encoder_encode_canonical_map(EncoderObject *self, PyObject *value)
+CBOREncoder_encode_canonical_map(CBOREncoderObject *self, PyObject *value)
 {
-    return Encoder__encode_shared(self, &Encoder__encode_canonical_map, value);
+    return encode_shared(self, &encode_canonical_map, value);
 }
 
 
 static PyObject *
-Encoder__encode_canonical_set(EncoderObject *self, PyObject *value)
+encode_canonical_set_list(CBOREncoderObject *self, PyObject *list)
 {
-    PyObject *list, *iter, *bytes, *length, *item, *ret = NULL;
+    PyObject *bytes;
     Py_ssize_t index;
 
-    list = PyList_New(PySet_GET_SIZE(value));
+    if (PyList_Sort(list) == -1)
+        return NULL;
+    if (encode_length(self, 6, 258) == -1)
+        return NULL;
+    if (encode_length(self, 4, PyList_GET_SIZE(list)) == -1)
+        return NULL;
+    for (index = 0; index < PyList_GET_SIZE(list); ++index) {
+        // We already have the encoded form, so just write it out
+        bytes = PyTuple_GET_ITEM(PyList_GET_ITEM(list, index), 1);
+        if (fp_write(self, PyBytes_AS_STRING(bytes), PyBytes_GET_SIZE(bytes)) == -1)
+            return NULL;
+    }
+    Py_RETURN_NONE;
+}
+
+
+static PyObject *
+set_to_canonical_list(CBOREncoderObject *self, PyObject *value)
+{
+    PyObject *iter, *bytes, *length, *item, *tuple, *list, *ret;
+    Py_ssize_t index;
+
+    ret = list = PyList_New(PySet_GET_SIZE(value));
     if (list) {
         iter = PyObject_GetIter(value);
         if (iter) {
-            Py_INCREF(Py_None);
-            ret = Py_None;
             index = 0;
             while (ret && (item = PyIter_Next(iter))) {
-                bytes = Encoder_encode_to_bytes(self, item);
+                bytes = CBOREncoder_encode_to_bytes(self, item);
                 if (bytes) {
                     length = PyLong_FromSsize_t(PyBytes_GET_SIZE(bytes));
                     if (length) {
-                        PyList_SET_ITEM(list, index,
-                                PyTuple_Pack(3, length, bytes, item));
-                        if (!PyList_GET_ITEM(list, index))
-                            Py_CLEAR(ret);
+                        tuple = PyTuple_Pack(3, length, bytes, item);
+                        if (tuple)
+                            PyList_SET_ITEM(list, index, tuple); // steals ref
+                        else
+                            ret = NULL;
                         index++;
                         Py_DECREF(length);
-                    }
+                    } else
+                        ret = NULL;
                     Py_DECREF(bytes);
-                }
+                } else
+                    ret = NULL;
                 Py_DECREF(item);
             }
             Py_DECREF(iter);
         }
-        if (PyList_Sort(list) == 0) {
-            if (Encoder__encode_length(self, 6, 258) == 0) {
-                if (Encoder__encode_length(self, 4, PyList_GET_SIZE(list)) == 0) {
-                    for (index = 0; index < PyList_GET_SIZE(list); ++index) {
-                        if (!Encoder_encode(self,
-                                    PyTuple_GET_ITEM(PyList_GET_ITEM(list, index), 2))) {
-                            Py_CLEAR(ret);
-                            break;
-                        }
-                    }
-                } else
-                    Py_CLEAR(ret);
-            } else
-                Py_CLEAR(ret);
-        } else
-            Py_CLEAR(ret);
-        Py_DECREF(list);
+        if (!ret)
+            Py_DECREF(list);
     }
-
     return ret;
 }
 
 
 static PyObject *
-Encoder_encode_canonical_set(EncoderObject *self, PyObject *value)
+encode_canonical_set(CBOREncoderObject *self, PyObject *value)
 {
-    return Encoder__encode_shared(self, &Encoder__encode_canonical_set, value);
+    PyObject *list, *ret = NULL;
+
+    list = set_to_canonical_list(self, value);
+    if (list) {
+        ret = encode_canonical_set_list(self, list);
+        Py_DECREF(list);
+    }
+    return ret;
+}
+
+
+static PyObject *
+CBOREncoder_encode_canonical_set(CBOREncoderObject *self, PyObject *value)
+{
+    return encode_shared(self, &encode_canonical_set, value);
 }
 
 
 // Main entry points /////////////////////////////////////////////////////////
 
-// Encoder.encode(self, value)
-static PyObject *
-Encoder_encode(EncoderObject *self, PyObject *value)
+static inline PyObject *
+encode(CBOREncoderObject *self, PyObject *value)
 {
     PyObject *encoder, *ret = NULL;
-
-    // TODO reset shared dict?
 
     switch (self->enc_style) {
         case 1:
             // canonical encoders
             if (PyFloat_CheckExact(value))
-                return Encoder_encode_minimal_float(self, value);
+                return CBOREncoder_encode_minimal_float(self, value);
             else if (PyDict_CheckExact(value))
-                return Encoder_encode_canonical_map(self, value);
+                return CBOREncoder_encode_canonical_map(self, value);
             else if (PyAnySet_CheckExact(value))
-                return Encoder_encode_canonical_set(self, value);
+                return CBOREncoder_encode_canonical_set(self, value);
             // fall-thru
         case 0:
             // regular encoders
             if (PyBytes_CheckExact(value))
-                return Encoder_encode_bytes(self, value);
+                return CBOREncoder_encode_bytes(self, value);
             else if (PyByteArray_CheckExact(value))
-                return Encoder_encode_bytearray(self, value);
+                return CBOREncoder_encode_bytearray(self, value);
             else if (PyUnicode_CheckExact(value))
-                return Encoder_encode_string(self, value);
+                return CBOREncoder_encode_string(self, value);
             else if (PyLong_CheckExact(value))
-                return Encoder_encode_int(self, value);
+                return CBOREncoder_encode_int(self, value);
             else if (PyFloat_CheckExact(value))
-                return Encoder_encode_float(self, value);
+                return CBOREncoder_encode_float(self, value);
             else if (PyBool_Check(value))
-                return Encoder_encode_boolean(self, value);
+                return CBOREncoder_encode_boolean(self, value);
             else if (value == Py_None)
-                return Encoder_encode_none(self, value);
+                return CBOREncoder_encode_none(self, value);
             else if (PyTuple_CheckExact(value))
-                return Encoder_encode_array(self, value);
+                return CBOREncoder_encode_array(self, value);
             else if (PyList_CheckExact(value))
-                return Encoder_encode_array(self, value);
+                return CBOREncoder_encode_array(self, value);
             else if (PyDict_CheckExact(value))
-                return Encoder_encode_map(self, value);
+                return CBOREncoder_encode_map(self, value);
             else if (PyDateTime_CheckExact(value))
-                return Encoder_encode_datetime(self, value);
+                return CBOREncoder_encode_datetime(self, value);
             else if (PyDate_CheckExact(value))
-                return Encoder_encode_date(self, value);
+                return CBOREncoder_encode_date(self, value);
             else if (PyAnySet_CheckExact(value))
-                return Encoder_encode_set(self, value);
+                return CBOREncoder_encode_set(self, value);
             // fall-thru
         default:
             // lookup type (or subclass) in self->encoders
-            encoder = Encoder_find_encoder(self, (PyObject *)Py_TYPE(value));
+            encoder = CBOREncoder_find_encoder(self, (PyObject *)Py_TYPE(value));
             if (encoder) {
                 if (encoder != Py_None)
                     ret = PyObject_CallFunctionObjArgs(
@@ -1580,8 +1645,23 @@ Encoder_encode(EncoderObject *self, PyObject *value)
 }
 
 
+// CBOREncoder.encode(self, value)
 static PyObject *
-Encoder_encode_to_bytes(EncoderObject *self, PyObject *value)
+CBOREncoder_encode(CBOREncoderObject *self, PyObject *value)
+{
+    PyObject *ret;
+
+    // TODO reset shared dict?
+    if (Py_EnterRecursiveCall(" in CBOREncoder.encode"))
+        return NULL;
+    ret = encode(self, value);
+    Py_LeaveRecursiveCall();
+    return ret;
+}
+
+
+static PyObject *
+CBOREncoder_encode_to_bytes(CBOREncoderObject *self, PyObject *value)
 {
     PyObject *save_write, *buf, *ret = NULL;
 
@@ -1593,7 +1673,7 @@ Encoder_encode_to_bytes(EncoderObject *self, PyObject *value)
     if (buf) {
         self->write = PyObject_GetAttr(buf, _CBOAR_str_write);
         if (self->write) {
-            ret = Encoder_encode(self, value);
+            ret = CBOREncoder_encode(self, value);
             if (ret) {
                 assert(ret == Py_None);
                 Py_DECREF(ret);
@@ -1610,102 +1690,109 @@ Encoder_encode_to_bytes(EncoderObject *self, PyObject *value)
 
 // Encoder class definition //////////////////////////////////////////////////
 
-static PyMemberDef Encoder_members[] = {
-    {"encoders", T_OBJECT_EX, offsetof(EncoderObject, encoders), READONLY,
+static PyMemberDef CBOREncoder_members[] = {
+    {"encoders", T_OBJECT_EX, offsetof(CBOREncoderObject, encoders), READONLY,
         "the ordered dict mapping types to encoder functions"},
-    {"enc_style", T_UBYTE, offsetof(EncoderObject, enc_style), 0,
+    {"enc_style", T_UBYTE, offsetof(CBOREncoderObject, enc_style), 0,
         "the optimized encoder lookup to use (0=regular, 1=canonical, "
         "anything else is custom)"},
-    {"timestamp_format", T_BOOL, offsetof(EncoderObject, timestamp_format), 0,
+    {"timestamp_format", T_BOOL, offsetof(CBOREncoderObject, timestamp_format), 0,
         "the sub-type to use when encoding datetime objects"},
-    {"value_sharing", T_BOOL, offsetof(EncoderObject, value_sharing), 0,
+    {"value_sharing", T_BOOL, offsetof(CBOREncoderObject, value_sharing), 0,
         "if True, then efficiently encode recursive structures"},
     {NULL}
 };
 
-static PyGetSetDef Encoder_getsetters[] = {
-    {"fp", (getter) Encoder_get_fp, (setter) Encoder_set_fp,
+static PyGetSetDef CBOREncoder_getsetters[] = {
+    {"fp",
+        (getter) _CBOREncoder_get_fp, (setter) _CBOREncoder_set_fp,
         "output file-like object", NULL},
-    {"default_handler", (getter) Encoder_get_default, (setter) Encoder_set_default,
+    {"default_handler",
+        (getter) _CBOREncoder_get_default, (setter) _CBOREncoder_set_default,
         "default handler called when encoding unknown objects", NULL},
-    {"timezone", (getter) Encoder_get_timezone, (setter) Encoder_set_timezone,
+    {"timezone",
+        (getter) _CBOREncoder_get_timezone, (setter) _CBOREncoder_set_timezone,
         "the timezone to use when encoding naive datetime objects", NULL},
     {NULL}
 };
 
-static PyMethodDef Encoder_methods[] = {
-    {"find_encoder", (PyCFunction) Encoder_find_encoder, METH_O,
+static PyMethodDef CBOREncoder_methods[] = {
+    {"_find_encoder", (PyCFunction) CBOREncoder_find_encoder, METH_O,
         "find an encoding function for the specified type"},
     // Standard encoding methods
-    {"encode", (PyCFunction) Encoder_encode, METH_O,
+    {"encode", (PyCFunction) CBOREncoder_encode, METH_O,
         "encode the specified *value* to the output"},
-    {"encode_to_bytes", (PyCFunction) Encoder_encode_to_bytes, METH_O,
+    {"encode_to_bytes", (PyCFunction) CBOREncoder_encode_to_bytes, METH_O,
         "encode the specified *value* to a bytestring"},
-    {"encode_length", (PyCFunction) Encoder_encode_length, METH_VARARGS,
-        "encode the specified *major_tag* with the specified *length* to the output"},
-    {"encode_int", (PyCFunction) Encoder_encode_int, METH_O,
+    {"encode_length", (PyCFunction) CBOREncoder_encode_length, METH_VARARGS,
+        "encode the specified *major_tag* with the specified *length* to "
+        "the output"},
+    {"encode_int", (PyCFunction) CBOREncoder_encode_int, METH_O,
         "encode the specified integer *value* to the output"},
-    {"encode_float", (PyCFunction) Encoder_encode_float, METH_O,
+    {"encode_float", (PyCFunction) CBOREncoder_encode_float, METH_O,
         "encode the specified floating-point *value* to the output"},
-    {"encode_boolean", (PyCFunction) Encoder_encode_boolean, METH_O,
+    {"encode_boolean", (PyCFunction) CBOREncoder_encode_boolean, METH_O,
         "encode the specified boolean *value* to the output"},
-    {"encode_none", (PyCFunction) Encoder_encode_none, METH_O,
+    {"encode_none", (PyCFunction) CBOREncoder_encode_none, METH_O,
         "encode the None value to the output"},
-    {"encode_undefined", (PyCFunction) Encoder_encode_undefined, METH_O,
+    {"encode_undefined", (PyCFunction) CBOREncoder_encode_undefined, METH_O,
         "encode the undefined value to the output"},
-    {"encode_datetime", (PyCFunction) Encoder_encode_datetime, METH_O,
+    {"encode_datetime", (PyCFunction) CBOREncoder_encode_datetime, METH_O,
         "encode the datetime *value* to the output"},
-    {"encode_date", (PyCFunction) Encoder_encode_date, METH_O,
+    {"encode_date", (PyCFunction) CBOREncoder_encode_date, METH_O,
         "encode the date *value* to the output"},
-    {"encode_bytes", (PyCFunction) Encoder_encode_bytes, METH_O,
+    {"encode_bytes", (PyCFunction) CBOREncoder_encode_bytes, METH_O,
         "encode the specified bytes *value* to the output"},
-    {"encode_bytearray", (PyCFunction) Encoder_encode_bytearray, METH_O,
+    {"encode_bytearray", (PyCFunction) CBOREncoder_encode_bytearray, METH_O,
         "encode the specified bytearray *value* to the output"},
-    {"encode_string", (PyCFunction) Encoder_encode_string, METH_O,
+    {"encode_string", (PyCFunction) CBOREncoder_encode_string, METH_O,
         "encode the specified string *value* to the output"},
-    {"encode_array", (PyCFunction) Encoder_encode_array, METH_O,
+    {"encode_array", (PyCFunction) CBOREncoder_encode_array, METH_O,
         "encode the specified sequence *value* to the output"},
-    {"encode_map", (PyCFunction) Encoder_encode_map, METH_O,
+    {"encode_map", (PyCFunction) CBOREncoder_encode_map, METH_O,
         "encode the specified mapping *value* to the output"},
-    {"encode_semantic", (PyCFunction) Encoder_encode_semantic, METH_O,
+    {"encode_semantic", (PyCFunction) CBOREncoder_encode_semantic, METH_O,
         "encode the specified CBORTag to the output"},
-    {"encode_simple", (PyCFunction) Encoder_encode_simple, METH_O,
+    {"encode_simple", (PyCFunction) CBOREncoder_encode_simple, METH_O,
         "encode the specified CBORSimpleValue to the output"},
-    {"encode_rational", (PyCFunction) Encoder_encode_rational, METH_O,
+    {"encode_rational", (PyCFunction) CBOREncoder_encode_rational, METH_O,
         "encode the specified fraction to the output"},
-    {"encode_decimal", (PyCFunction) Encoder_encode_decimal, METH_O,
+    {"encode_decimal", (PyCFunction) CBOREncoder_encode_decimal, METH_O,
         "encode the specified Decimal to the output"},
-    {"encode_regex", (PyCFunction) Encoder_encode_regex, METH_O,
+    {"encode_regex", (PyCFunction) CBOREncoder_encode_regex, METH_O,
         "encode the specified regular expression object to the output"},
-    {"encode_mime", (PyCFunction) Encoder_encode_mime, METH_O,
+    {"encode_mime", (PyCFunction) CBOREncoder_encode_mime, METH_O,
         "encode the specified MIME message object to the output"},
-    {"encode_uuid", (PyCFunction) Encoder_encode_uuid, METH_O,
+    {"encode_uuid", (PyCFunction) CBOREncoder_encode_uuid, METH_O,
         "encode the specified UUID to the output"},
-    {"encode_set", (PyCFunction) Encoder_encode_set, METH_O,
+    {"encode_set", (PyCFunction) CBOREncoder_encode_set, METH_O,
         "encode the specified set to the output"},
-    {"encode_shared", (PyCFunction) Encoder_encode_shared, METH_VARARGS,
+    {"encode_shared", (PyCFunction) CBOREncoder_encode_shared, METH_VARARGS,
         "encode the specified CBORTag to the output"},
     // Canonical encoding methods
-    {"encode_minimal_float", (PyCFunction) Encoder_encode_minimal_float, METH_O,
+    {"encode_minimal_float",
+        (PyCFunction) CBOREncoder_encode_minimal_float, METH_O,
         "encode the specified float to a minimal representation in the output"},
-    {"encode_canonical_map", (PyCFunction) Encoder_encode_canonical_map, METH_O,
+    {"encode_canonical_map",
+        (PyCFunction) CBOREncoder_encode_canonical_map, METH_O,
         "encode the specified map to a canonical representation in the output"},
-    {"encode_canonical_set", (PyCFunction) Encoder_encode_canonical_set, METH_O,
+    {"encode_canonical_set",
+        (PyCFunction) CBOREncoder_encode_canonical_set, METH_O,
         "encode the specified set to a canonical representation in the output"},
     {NULL}
 };
 
-PyTypeObject EncoderType = {
+PyTypeObject CBOREncoderType = {
     PyVarObject_HEAD_INIT(NULL, 0)
-    .tp_name = "_cboar.Encoder",
-    .tp_doc = "CBOAR encoder objects",
-    .tp_basicsize = sizeof(EncoderObject),
+    .tp_name = "_cboar.CBOREncoder",
+    .tp_doc = "CBOR encoder objects",
+    .tp_basicsize = sizeof(CBOREncoderObject),
     .tp_itemsize = 0,
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
-    .tp_new = Encoder_new,
-    .tp_init = (initproc) Encoder_init,
-    .tp_dealloc = (destructor) Encoder_dealloc,
-    .tp_members = Encoder_members,
-    .tp_getset = Encoder_getsetters,
-    .tp_methods = Encoder_methods,
+    .tp_new = CBOREncoder_new,
+    .tp_init = (initproc) CBOREncoder_init,
+    .tp_dealloc = (destructor) CBOREncoder_dealloc,
+    .tp_members = CBOREncoder_members,
+    .tp_getset = CBOREncoder_getsetters,
+    .tp_methods = CBOREncoder_methods,
 };

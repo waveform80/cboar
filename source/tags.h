@@ -5,11 +5,11 @@ typedef struct {
     PyObject_HEAD
     uint64_t tag;
     PyObject *value;
-} TagObject;
+} CBORTagObject;
 
-PyTypeObject TagType;
+PyTypeObject CBORTagType;
 
-PyObject * Tag_New(uint64_t);
-int Tag_SetValue(PyObject *, PyObject *);
+PyObject * CBORTag_New(uint64_t);
+int CBORTag_SetValue(PyObject *, PyObject *);
 
-#define Tag_CheckExact(op) (Py_TYPE(op) == &TagType)
+#define CBORTag_CheckExact(op) (Py_TYPE(op) == &CBORTagType)

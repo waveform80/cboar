@@ -6,22 +6,22 @@
 
 // Constructors and destructors //////////////////////////////////////////////
 
-// Tag.__del__(self)
+// CBORTag.__del__(self)
 static void
-Tag_dealloc(TagObject *self)
+CBORTag_dealloc(CBORTagObject *self)
 {
     Py_XDECREF(self->value);
     Py_TYPE(self)->tp_free((PyObject *) self);
 }
 
 
-// Tag.__new__(cls, *args, **kwargs)
+// CBORTag.__new__(cls, *args, **kwargs)
 static PyObject *
-Tag_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
+CBORTag_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
 {
-    TagObject *self;
+    CBORTagObject *self;
 
-    self = (TagObject *) type->tp_alloc(type, 0);
+    self = (CBORTagObject *) type->tp_alloc(type, 0);
     if (self) {
         self->tag = 0;
         Py_INCREF(Py_None);
@@ -31,9 +31,9 @@ Tag_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
 }
 
 
-// Tag.__init__(self, tag=None, value=None)
+// CBORTag.__init__(self, tag=None, value=None)
 static int
-Tag_init(TagObject *self, PyObject *args, PyObject *kwargs)
+CBORTag_init(CBORTagObject *self, PyObject *args, PyObject *kwargs)
 {
     static char *keywords[] = {"tag", "value", NULL};
     PyObject *tmp, *value = NULL;
@@ -55,7 +55,7 @@ Tag_init(TagObject *self, PyObject *args, PyObject *kwargs)
 // Special methods ///////////////////////////////////////////////////////////
 
 static PyObject *
-Tag_repr(TagObject *self)
+CBORTag_repr(CBORTagObject *self)
 {
     PyObject *ret = NULL;
 
@@ -69,16 +69,16 @@ Tag_repr(TagObject *self)
 
 
 static PyObject *
-Tag_richcompare(PyObject *aobj, PyObject *bobj, int op)
+CBORTag_richcompare(PyObject *aobj, PyObject *bobj, int op)
 {
     PyObject *ret = NULL;
-    TagObject *a, *b;
+    CBORTagObject *a, *b;
 
-    if (!(Tag_CheckExact(aobj) && Tag_CheckExact(bobj))) {
+    if (!(CBORTag_CheckExact(aobj) && CBORTag_CheckExact(bobj))) {
         Py_RETURN_NOTIMPLEMENTED;
     } else {
-        a = (TagObject *)aobj;
-        b = (TagObject *)bobj;
+        a = (CBORTagObject *)aobj;
+        b = (CBORTagObject *)bobj;
 
         if (a->tag == b->tag) {
             ret = PyObject_RichCompare(a->value, b->value, op);
@@ -102,11 +102,11 @@ Tag_richcompare(PyObject *aobj, PyObject *bobj, int op)
 // C API /////////////////////////////////////////////////////////////////////
 
 PyObject *
-Tag_New(uint64_t tag)
+CBORTag_New(uint64_t tag)
 {
-    TagObject *ret = NULL;
+    CBORTagObject *ret = NULL;
 
-    ret = PyObject_New(TagObject, &TagType);
+    ret = PyObject_New(CBORTagObject, &CBORTagType);
     if (ret) {
         ret->tag = tag;
         Py_INCREF(Py_None);
@@ -116,17 +116,17 @@ Tag_New(uint64_t tag)
 }
 
 int
-Tag_SetValue(PyObject *tag, PyObject *value)
+CBORTag_SetValue(PyObject *tag, PyObject *value)
 {
     PyObject *tmp;
-    TagObject *self;
+    CBORTagObject *self;
 
-    if (!Tag_CheckExact(tag))
+    if (!CBORTag_CheckExact(tag))
         return -1;
     if (!value)
         return -1;
 
-    self = (TagObject*)tag;
+    self = (CBORTagObject*)tag;
     tmp = self->value;
     Py_INCREF(value);
     self->value = value;
@@ -137,25 +137,25 @@ Tag_SetValue(PyObject *tag, PyObject *value)
 
 // Tag class definition //////////////////////////////////////////////////////
 
-static PyMemberDef Tag_members[] = {
-    {"tag", T_ULONGLONG, offsetof(TagObject, tag), 0,
+static PyMemberDef CBORTag_members[] = {
+    {"tag", T_ULONGLONG, offsetof(CBORTagObject, tag), 0,
         "the semantic tag associated with the value"},
-    {"value", T_OBJECT_EX, offsetof(TagObject, value), 0,
+    {"value", T_OBJECT_EX, offsetof(CBORTagObject, value), 0,
         "the tagged value"},
     {NULL}
 };
 
-PyTypeObject TagType = {
+PyTypeObject CBORTagType = {
     PyVarObject_HEAD_INIT(NULL, 0)
-    .tp_name = "_cboar.Tag",
-    .tp_doc = "CBOAR tag objects",
-    .tp_basicsize = sizeof(TagObject),
+    .tp_name = "_cboar.CBORTag",
+    .tp_doc = "CBOR tag objects",
+    .tp_basicsize = sizeof(CBORTagObject),
     .tp_itemsize = 0,
     .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_new = Tag_new,
-    .tp_init = (initproc) Tag_init,
-    .tp_dealloc = (destructor) Tag_dealloc,
-    .tp_members = Tag_members,
-    .tp_repr = (reprfunc) Tag_repr,
-    .tp_richcompare = Tag_richcompare,
+    .tp_new = CBORTag_new,
+    .tp_init = (initproc) CBORTag_init,
+    .tp_dealloc = (destructor) CBORTag_dealloc,
+    .tp_members = CBORTag_members,
+    .tp_repr = (reprfunc) CBORTag_repr,
+    .tp_richcompare = CBORTag_richcompare,
 };

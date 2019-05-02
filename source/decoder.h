@@ -12,6 +12,6 @@ typedef struct {
     PyObject *str_errors;
     bool immutable;
     int32_t shared_index;
-} DecoderObject;
+} CBORDecoderObject;
 
-PyTypeObject DecoderType;
+PyTypeObject CBORDecoderType;

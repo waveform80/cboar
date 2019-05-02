@@ -14,42 +14,44 @@
 #include "decoder.h"
 
 
-static int Decoder_set_fp(DecoderObject *, PyObject *, void *);
-static int Decoder_set_tag_hook(DecoderObject *, PyObject *, void *);
-static int Decoder_set_object_hook(DecoderObject *, PyObject *, void *);
-static int Decoder_set_str_errors(DecoderObject *, PyObject *, void *);
+static int _CBORDecoder_set_fp(CBORDecoderObject *, PyObject *, void *);
+static int _CBORDecoder_set_tag_hook(CBORDecoderObject *, PyObject *, void *);
+static int _CBORDecoder_set_object_hook(CBORDecoderObject *, PyObject *, void *);
+static int _CBORDecoder_set_str_errors(CBORDecoderObject *, PyObject *, void *);
 
-static PyObject * Decoder__decode_bytestring(DecoderObject *, uint8_t);
-static PyObject * Decoder__decode_string(DecoderObject *, uint8_t);
-static PyObject * Decoder_decode_datestr(DecoderObject *);
-static PyObject * Decoder_decode_timestamp(DecoderObject *);
-static PyObject * Decoder_decode_fraction(DecoderObject *);
-static PyObject * Decoder_decode_bigfloat(DecoderObject *);
-static PyObject * Decoder_decode_rational(DecoderObject *);
-static PyObject * Decoder_decode_regexp(DecoderObject *);
-static PyObject * Decoder_decode_uuid(DecoderObject *);
-static PyObject * Decoder_decode_mime(DecoderObject *);
-static PyObject * Decoder_decode_positive_bignum(DecoderObject *);
-static PyObject * Decoder_decode_negative_bignum(DecoderObject *);
-static PyObject * Decoder_decode_simplevalue(DecoderObject *);
-static PyObject * Decoder_decode_float16(DecoderObject *);
-static PyObject * Decoder_decode_float32(DecoderObject *);
-static PyObject * Decoder_decode_float64(DecoderObject *);
+static PyObject * decode_bytestring(CBORDecoderObject *, uint8_t);
+static PyObject * decode_string(CBORDecoderObject *, uint8_t);
+static PyObject * CBORDecoder_decode_datestr(CBORDecoderObject *);
+static PyObject * CBORDecoder_decode_timestamp(CBORDecoderObject *);
+static PyObject * CBORDecoder_decode_fraction(CBORDecoderObject *);
+static PyObject * CBORDecoder_decode_bigfloat(CBORDecoderObject *);
+static PyObject * CBORDecoder_decode_rational(CBORDecoderObject *);
+static PyObject * CBORDecoder_decode_regexp(CBORDecoderObject *);
+static PyObject * CBORDecoder_decode_uuid(CBORDecoderObject *);
+static PyObject * CBORDecoder_decode_mime(CBORDecoderObject *);
+static PyObject * CBORDecoder_decode_positive_bignum(CBORDecoderObject *);
+static PyObject * CBORDecoder_decode_negative_bignum(CBORDecoderObject *);
+static PyObject * CBORDecoder_decode_simplevalue(CBORDecoderObject *);
+static PyObject * CBORDecoder_decode_float16(CBORDecoderObject *);
+static PyObject * CBORDecoder_decode_float32(CBORDecoderObject *);
+static PyObject * CBORDecoder_decode_float64(CBORDecoderObject *);
 
-static PyObject * Decoder_decode_shareable(DecoderObject *);
-static PyObject * Decoder_decode_shared(DecoderObject *);
-static PyObject * Decoder_decode_set(DecoderObject *);
-static PyObject * Decoder_decode(DecoderObject *);
-static PyObject * Decoder_decode_immutable(DecoderObject *);
-static PyObject * Decoder_decode_unshared(DecoderObject *);
-static PyObject * Decoder_decode_immutable_unshared(DecoderObject *);
+static PyObject * CBORDecoder_decode_shareable(CBORDecoderObject *);
+static PyObject * CBORDecoder_decode_shared(CBORDecoderObject *);
+static PyObject * CBORDecoder_decode_set(CBORDecoderObject *);
+static PyObject * CBORDecoder_decode(CBORDecoderObject *);
+static PyObject * CBORDecoder_decode_immutable(CBORDecoderObject *);
+static PyObject * CBORDecoder_decode_unshared(CBORDecoderObject *);
+static PyObject * CBORDecoder_decode_immutable_unshared(CBORDecoderObject *);
+
+// TODO Docstrings
 
 
 // Constructors and destructors //////////////////////////////////////////////
 
-// Decoder.__del__(self)
+// CBORDecoder.__del__(self)
 static void
-Decoder_dealloc(DecoderObject *self)
+CBORDecoder_dealloc(CBORDecoderObject *self)
 {
     Py_XDECREF(self->read);
     Py_XDECREF(self->tag_hook);
@@ -60,17 +62,17 @@ Decoder_dealloc(DecoderObject *self)
 }
 
 
-// Decoder.__new__(cls, *args, **kwargs)
+// CBORDecoder.__new__(cls, *args, **kwargs)
 static PyObject *
-Decoder_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
+CBORDecoder_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
 {
-    DecoderObject *self;
+    CBORDecoderObject *self;
 
     PyDateTime_IMPORT;
     if (!PyDateTimeAPI)
         return NULL;
 
-    self = (DecoderObject *) type->tp_alloc(type, 0);
+    self = (CBORDecoderObject *) type->tp_alloc(type, 0);
     if (self) {
         // self.shareables = []
         self->shareables = PyList_New(0);
@@ -93,9 +95,9 @@ error:
 }
 
 
-// Decoder.__init__(self, fp=None, tag_hook=None, object_hook=None)
+// CBORDecoder.__init__(self, fp=None, tag_hook=None, object_hook=None)
 static int
-Decoder_init(DecoderObject *self, PyObject *args, PyObject *kwargs)
+CBORDecoder_init(CBORDecoderObject *self, PyObject *args, PyObject *kwargs)
 {
     static char *keywords[] = {
         "fp", "tag_hook", "object_hook", "str_errors", NULL
@@ -107,13 +109,13 @@ Decoder_init(DecoderObject *self, PyObject *args, PyObject *kwargs)
                 &fp, &tag_hook, &object_hook, &str_errors))
         return -1;
 
-    if (Decoder_set_fp(self, fp, NULL) == -1)
+    if (_CBORDecoder_set_fp(self, fp, NULL) == -1)
         return -1;
-    if (tag_hook && Decoder_set_tag_hook(self, tag_hook, NULL) == -1)
+    if (tag_hook && _CBORDecoder_set_tag_hook(self, tag_hook, NULL) == -1)
         return -1;
-    if (object_hook && Decoder_set_object_hook(self, object_hook, NULL) == -1)
+    if (object_hook && _CBORDecoder_set_object_hook(self, object_hook, NULL) == -1)
         return -1;
-    if (str_errors && Decoder_set_str_errors(self, str_errors, NULL) == -1)
+    if (str_errors && _CBORDecoder_set_str_errors(self, str_errors, NULL) == -1)
         return -1;
 
     return 0;
@@ -122,9 +124,9 @@ Decoder_init(DecoderObject *self, PyObject *args, PyObject *kwargs)
 
 // Property accessors ////////////////////////////////////////////////////////
 
-// Decoder._get_fp(self)
+// CBORDecoder._get_fp(self)
 static PyObject *
-Decoder_get_fp(DecoderObject *self, void *closure)
+_CBORDecoder_get_fp(CBORDecoderObject *self, void *closure)
 {
     PyObject *ret = PyMethod_GET_SELF(self->read);
     Py_INCREF(ret);
@@ -132,9 +134,9 @@ Decoder_get_fp(DecoderObject *self, void *closure)
 }
 
 
-// Decoder._set_fp(self, value)
+// CBORDecoder._set_fp(self, value)
 static int
-Decoder_set_fp(DecoderObject *self, PyObject *value, void *closure)
+_CBORDecoder_set_fp(CBORDecoderObject *self, PyObject *value, void *closure)
 {
     PyObject *tmp, *read;
 
@@ -158,18 +160,19 @@ Decoder_set_fp(DecoderObject *self, PyObject *value, void *closure)
 }
 
 
-// Decoder._get_tag_hook(self)
+// CBORDecoder._get_tag_hook(self)
 static PyObject *
-Decoder_get_tag_hook(DecoderObject *self, void *closure)
+_CBORDecoder_get_tag_hook(CBORDecoderObject *self, void *closure)
 {
     Py_INCREF(self->tag_hook);
     return self->tag_hook;
 }
 
 
-// Decoder._set_tag_hook(self, value)
+// CBORDecoder._set_tag_hook(self, value)
 static int
-Decoder_set_tag_hook(DecoderObject *self, PyObject *value, void *closure)
+_CBORDecoder_set_tag_hook(CBORDecoderObject *self, PyObject *value,
+                          void *closure)
 {
     PyObject *tmp;
 
@@ -193,18 +196,19 @@ Decoder_set_tag_hook(DecoderObject *self, PyObject *value, void *closure)
 }
 
 
-// Decoder._get_object_hook(self)
+// CBORDecoder._get_object_hook(self)
 static PyObject *
-Decoder_get_object_hook(DecoderObject *self, void *closure)
+_CBORDecoder_get_object_hook(CBORDecoderObject *self, void *closure)
 {
     Py_INCREF(self->object_hook);
     return self->object_hook;
 }
 
 
-// Decoder._set_object_hook(self, value)
+// CBORDecoder._set_object_hook(self, value)
 static int
-Decoder_set_object_hook(DecoderObject *self, PyObject *value, void *closure)
+_CBORDecoder_set_object_hook(CBORDecoderObject *self, PyObject *value,
+                             void *closure)
 {
     PyObject *tmp;
 
@@ -228,9 +232,9 @@ Decoder_set_object_hook(DecoderObject *self, PyObject *value, void *closure)
 }
 
 
-// Decoder._get_str_errors(self)
+// CBORDecoder._get_str_errors(self)
 static PyObject *
-Decoder_get_str_errors(DecoderObject *self, void *closure)
+_CBORDecoder_get_str_errors(CBORDecoderObject *self, void *closure)
 {
     return PyUnicode_DecodeASCII(
             PyBytes_AS_STRING(self->str_errors),
@@ -238,9 +242,10 @@ Decoder_get_str_errors(DecoderObject *self, void *closure)
 }
 
 
-// Decoder._set_str_errors(self, value)
+// CBORDecoder._set_str_errors(self, value)
 static int
-Decoder_set_str_errors(DecoderObject *self, PyObject *value, void *closure)
+_CBORDecoder_set_str_errors(CBORDecoderObject *self, PyObject *value,
+                            void *closure)
 {
     PyObject *tmp, *bytes;
 
@@ -273,7 +278,7 @@ Decoder_set_str_errors(DecoderObject *self, PyObject *value, void *closure)
 // Utility functions /////////////////////////////////////////////////////////
 
 static int
-Decoder__read(DecoderObject *self, char *buf, const uint64_t size)
+fp_read(CBORDecoderObject *self, char *buf, const uint64_t size)
 {
     PyObject *obj;
     char *data;
@@ -298,7 +303,7 @@ Decoder__read(DecoderObject *self, char *buf, const uint64_t size)
 
 
 static inline void
-Decoder__set_shareable(DecoderObject *self, PyObject *value)
+set_shareable(CBORDecoderObject *self, PyObject *value)
 {
     if (value && self->shared_index != -1) {
         Py_INCREF(value);  // PyList_SetItem "steals" reference
@@ -312,17 +317,17 @@ Decoder__set_shareable(DecoderObject *self, PyObject *value)
 }
 
 
-// Decoder.set_shareable(self, value)
+// CBORDecoder.set_shareable(self, value)
 static PyObject *
-Decoder_set_shareable(DecoderObject *self, PyObject *value)
+CBORDecoder_set_shareable(CBORDecoderObject *self, PyObject *value)
 {
-    Decoder__set_shareable(self, value);
+    set_shareable(self, value);
     Py_RETURN_NONE;
 }
 
 
 static int
-Decoder__decode_length(DecoderObject *self, uint8_t subtype,
+decode_length(CBORDecoderObject *self, uint8_t subtype,
         uint64_t *length, bool *indefinite)
 {
     union {
@@ -336,19 +341,19 @@ Decoder__decode_length(DecoderObject *self, uint8_t subtype,
         if (subtype < 24) {
             *length = subtype;
         } else if (subtype == 24) {
-            if (Decoder__read(self, value.u8.buf, sizeof(uint8_t)) == -1)
+            if (fp_read(self, value.u8.buf, sizeof(uint8_t)) == -1)
                 return -1;
             *length = value.u8.value;
         } else if (subtype == 25) {
-            if (Decoder__read(self, value.u16.buf, sizeof(uint16_t)) == -1)
+            if (fp_read(self, value.u16.buf, sizeof(uint16_t)) == -1)
                 return -1;
             *length = be16toh(value.u16.value);
         } else if (subtype == 26) {
-            if (Decoder__read(self, value.u32.buf, sizeof(uint32_t)) == -1)
+            if (fp_read(self, value.u32.buf, sizeof(uint32_t)) == -1)
                 return -1;
             *length = be32toh(value.u32.value);
         } else {
-            if (Decoder__read(self, value.u64.buf, sizeof(uint64_t)) == -1)
+            if (fp_read(self, value.u64.buf, sizeof(uint64_t)) == -1)
                 return -1;
             *length = be64toh(value.u64.value);
         }
@@ -369,27 +374,27 @@ Decoder__decode_length(DecoderObject *self, uint8_t subtype,
 // Major decoders ////////////////////////////////////////////////////////////
 
 static PyObject *
-Decoder__decode_uint(DecoderObject *self, uint8_t subtype)
+decode_uint(CBORDecoderObject *self, uint8_t subtype)
 {
     // major type 0
     uint64_t length;
     PyObject *ret;
 
-    if (Decoder__decode_length(self, subtype, &length, NULL) == -1)
+    if (decode_length(self, subtype, &length, NULL) == -1)
         return NULL;
     ret = PyLong_FromUnsignedLongLong(length);
-    Decoder__set_shareable(self, ret);
+    set_shareable(self, ret);
     return ret;
 }
 
 
 static PyObject *
-Decoder__decode_negint(DecoderObject *self, uint8_t subtype)
+decode_negint(CBORDecoderObject *self, uint8_t subtype)
 {
     // major type 1
     PyObject *value, *one, *ret = NULL;
 
-    value = Decoder__decode_uint(self, subtype);
+    value = decode_uint(self, subtype);
     if (value) {
         one = PyLong_FromLong(1);
         if (one) {
@@ -398,7 +403,7 @@ Decoder__decode_negint(DecoderObject *self, uint8_t subtype)
                 Py_DECREF(value);
                 value = ret;
                 ret = PyNumber_Subtract(value, one);
-                Decoder__set_shareable(self, ret);
+                set_shareable(self, ret);
             }
             Py_DECREF(one);
         }
@@ -409,7 +414,7 @@ Decoder__decode_negint(DecoderObject *self, uint8_t subtype)
 
 
 static PyObject *
-Decoder__decode_definite_bytestring(DecoderObject *self, uint64_t length)
+decode_definite_bytestring(CBORDecoderObject *self, uint64_t length)
 {
     PyObject *ret = NULL;
 
@@ -418,7 +423,7 @@ Decoder__decode_definite_bytestring(DecoderObject *self, uint64_t length)
     ret = PyBytes_FromStringAndSize(NULL, length);
     if (!ret)
         return NULL;
-    if (Decoder__read(self, PyBytes_AS_STRING(ret), length) == -1) {
+    if (fp_read(self, PyBytes_AS_STRING(ret), length) == -1) {
         Py_DECREF(ret);
         return NULL;
     }
@@ -427,7 +432,7 @@ Decoder__decode_definite_bytestring(DecoderObject *self, uint64_t length)
 
 
 static PyObject *
-Decoder__decode_indefinite_bytestrings(DecoderObject *self)
+decode_indefinite_bytestrings(CBORDecoderObject *self)
 {
     PyObject *list, *ret = NULL;
     LeadByte lead;
@@ -435,10 +440,10 @@ Decoder__decode_indefinite_bytestrings(DecoderObject *self)
     list = PyList_New(0);
     if (list) {
         while (1) {
-            if (Decoder__read(self, &lead.byte, 1) == -1)
+            if (fp_read(self, &lead.byte, 1) == -1)
                 break;
             if (lead.major == 2) {
-                ret = Decoder__decode_bytestring(self, lead.subtype);
+                ret = decode_bytestring(self, lead.subtype);
                 if (ret) {
                     PyList_Append(list, ret);
                     Py_DECREF(ret);
@@ -462,20 +467,20 @@ Decoder__decode_indefinite_bytestrings(DecoderObject *self)
 
 
 static PyObject *
-Decoder__decode_bytestring(DecoderObject *self, uint8_t subtype)
+decode_bytestring(CBORDecoderObject *self, uint8_t subtype)
 {
     // major type 2
     uint64_t length;
     bool indefinite = true;
     PyObject *ret;
 
-    if (Decoder__decode_length(self, subtype, &length, &indefinite) == -1)
+    if (decode_length(self, subtype, &length, &indefinite) == -1)
         return NULL;
     if (indefinite)
-        ret = Decoder__decode_indefinite_bytestrings(self);
+        ret = decode_indefinite_bytestrings(self);
     else
-        ret = Decoder__decode_definite_bytestring(self, length);
-    Decoder__set_shareable(self, ret);
+        ret = decode_definite_bytestring(self, length);
+    set_shareable(self, ret);
     return ret;
 }
 
@@ -495,7 +500,7 @@ Decoder__decode_bytestring(DecoderObject *self, uint8_t subtype)
 
 
 static PyObject *
-Decoder__decode_definite_string(DecoderObject *self, uint64_t length)
+decode_definite_string(CBORDecoderObject *self, uint64_t length)
 {
     PyObject *ret = NULL;
     char *buf;
@@ -506,7 +511,7 @@ Decoder__decode_definite_string(DecoderObject *self, uint64_t length)
     if (!buf)
         return PyErr_NoMemory();
 
-    if (Decoder__read(self, buf, length) == 0)
+    if (fp_read(self, buf, length) == 0)
         ret = PyUnicode_DecodeUTF8(
                 buf, length, PyBytes_AS_STRING(self->str_errors));
     PyMem_Free(buf);
@@ -515,7 +520,7 @@ Decoder__decode_definite_string(DecoderObject *self, uint64_t length)
 
 
 static PyObject *
-Decoder__decode_indefinite_strings(DecoderObject *self)
+decode_indefinite_strings(CBORDecoderObject *self)
 {
     PyObject *list, *ret = NULL;
     LeadByte lead;
@@ -523,10 +528,10 @@ Decoder__decode_indefinite_strings(DecoderObject *self)
     list = PyList_New(0);
     if (list) {
         while (1) {
-            if (Decoder__read(self, &lead.byte, 1) == -1)
+            if (fp_read(self, &lead.byte, 1) == -1)
                 break;
             if (lead.major == 3) {
-                ret = Decoder__decode_string(self, lead.subtype);
+                ret = decode_string(self, lead.subtype);
                 if (ret) {
                     PyList_Append(list, ret);
                     Py_DECREF(ret);
@@ -549,36 +554,35 @@ Decoder__decode_indefinite_strings(DecoderObject *self)
 
 
 static PyObject *
-Decoder__decode_string(DecoderObject *self, uint8_t subtype)
+decode_string(CBORDecoderObject *self, uint8_t subtype)
 {
     // major type 3
     uint64_t length;
     bool indefinite = true;
     PyObject *ret;
 
-    if (Decoder__decode_length(self, subtype, &length, &indefinite) == -1)
+    if (decode_length(self, subtype, &length, &indefinite) == -1)
         return NULL;
     if (indefinite)
-        ret = Decoder__decode_indefinite_strings(self);
+        ret = decode_indefinite_strings(self);
     else
-        ret = Decoder__decode_definite_string(self, length);
-    Decoder__set_shareable(self, ret);
+        ret = decode_definite_string(self, length);
+    set_shareable(self, ret);
     return ret;
 }
 
 
 static PyObject *
-Decoder__decode_indefinite_array(DecoderObject *self)
+decode_indefinite_array(CBORDecoderObject *self)
 {
     PyObject *array, *item, *ret = NULL;
 
     array = PyList_New(0);
     if (array) {
         ret = array;
-        Decoder__set_shareable(self, array);
+        set_shareable(self, array);
         while (ret) {
-            // XXX Recursion
-            item = Decoder_decode_unshared(self);
+            item = CBORDecoder_decode_unshared(self);
             if (item == break_marker) {
                 Py_DECREF(item);
                 break;
@@ -599,7 +603,7 @@ Decoder__decode_indefinite_array(DecoderObject *self)
                 // recursive tuple isn't valid in the first place so it's a bit
                 // of a waste of time searching for recursive references just
                 // to throw an error
-                Decoder__set_shareable(self, ret);
+                set_shareable(self, ret);
             } else
                 ret = NULL;
         }
@@ -611,7 +615,7 @@ Decoder__decode_indefinite_array(DecoderObject *self)
 
 
 static PyObject *
-Decoder__decode_definite_array(DecoderObject *self, uint64_t length)
+decode_definite_array(CBORDecoderObject *self, uint64_t length)
 {
     Py_ssize_t i;
     PyObject *array, *item, *ret = NULL;
@@ -621,8 +625,7 @@ Decoder__decode_definite_array(DecoderObject *self, uint64_t length)
         if (array) {
             ret = array;
             for (i = 0; i < length; ++i) {
-                // XXX Recursion
-                item = Decoder_decode_unshared(self);
+                item = CBORDecoder_decode_unshared(self);
                 if (item)
                     PyTuple_SET_ITEM(array, i, item);
                 else {
@@ -636,15 +639,14 @@ Decoder__decode_definite_array(DecoderObject *self, uint64_t length)
         // contain a reference to itself (because a reference to it can't exist
         // during its own construction ... in Python at least; as can be seen
         // above this *is* theoretically possible at the C level).
-        Decoder__set_shareable(self, ret);
+        set_shareable(self, ret);
     } else {
         array = PyList_New(length);
         if (array) {
             ret = array;
-            Decoder__set_shareable(self, array);
+            set_shareable(self, array);
             for (i = 0; i < length; ++i) {
-                // XXX Recursion
-                item = Decoder_decode_unshared(self);
+                item = CBORDecoder_decode_unshared(self);
                 if (item)
                     PyList_SET_ITEM(array, i, item);
                 else {
@@ -661,23 +663,23 @@ Decoder__decode_definite_array(DecoderObject *self, uint64_t length)
 
 
 static PyObject *
-Decoder__decode_array(DecoderObject *self, uint8_t subtype)
+decode_array(CBORDecoderObject *self, uint8_t subtype)
 {
     // major type 4
     uint64_t length;
     bool indefinite = true;
 
-    if (Decoder__decode_length(self, subtype, &length, &indefinite) == -1)
+    if (decode_length(self, subtype, &length, &indefinite) == -1)
         return NULL;
     if (indefinite)
-        return Decoder__decode_indefinite_array(self);
+        return decode_indefinite_array(self);
     else
-        return Decoder__decode_definite_array(self, length);
+        return decode_definite_array(self, length);
 }
 
 
 static PyObject *
-Decoder__decode_map(DecoderObject *self, uint8_t subtype)
+decode_map(CBORDecoderObject *self, uint8_t subtype)
 {
     // major type 5
     uint64_t length;
@@ -687,18 +689,16 @@ Decoder__decode_map(DecoderObject *self, uint8_t subtype)
     map = PyDict_New();
     if (map) {
         ret = map;
-        Decoder__set_shareable(self, map);
-        if (Decoder__decode_length(self, subtype, &length, &indefinite) == 0) {
+        set_shareable(self, map);
+        if (decode_length(self, subtype, &length, &indefinite) == 0) {
             if (indefinite) {
                 while (ret) {
-                    // XXX Recursion
-                    key = Decoder_decode_immutable_unshared(self);
+                    key = CBORDecoder_decode_immutable_unshared(self);
                     if (key == break_marker) {
                         Py_DECREF(key);
                         break;
                     } else if (key) {
-                        // XXX Recursion
-                        value = Decoder_decode_unshared(self);
+                        value = CBORDecoder_decode_unshared(self);
                         if (value) {
                             if (PyDict_SetItem(map, key, value) == -1)
                                 ret = NULL;
@@ -711,11 +711,9 @@ Decoder__decode_map(DecoderObject *self, uint8_t subtype)
                 }
             } else {
                 while (ret && length--) {
-                    // XXX Recursion
-                    key = Decoder_decode_immutable_unshared(self);
+                    key = CBORDecoder_decode_immutable_unshared(self);
                     if (key) {
-                        // XXX Recursion
-                        value = Decoder_decode_unshared(self);
+                        value = CBORDecoder_decode_unshared(self);
                         if (value) {
                             if (PyDict_SetItem(map, key, value) == -1)
                                 ret = NULL;
@@ -736,7 +734,7 @@ Decoder__decode_map(DecoderObject *self, uint8_t subtype)
         map = PyObject_CallFunctionObjArgs(
                 self->object_hook, self, ret, NULL);
         if (map) {
-            Decoder__set_shareable(self, map);
+            set_shareable(self, map);
             Py_DECREF(ret);
             ret = map;
         }
@@ -748,42 +746,41 @@ Decoder__decode_map(DecoderObject *self, uint8_t subtype)
 // Semantic decoders /////////////////////////////////////////////////////////
 
 static PyObject *
-Decoder__decode_semantic(DecoderObject *self, uint8_t subtype)
+decode_semantic(CBORDecoderObject *self, uint8_t subtype)
 {
     // major type 6
     uint64_t tagnum;
     PyObject *tag, *value, *ret = NULL;
 
-    if (Decoder__decode_length(self, subtype, &tagnum, NULL) == 0) {
+    if (decode_length(self, subtype, &tagnum, NULL) == 0) {
         switch (tagnum) {
-            case 0:   ret = Decoder_decode_datestr(self);         break;
-            case 1:   ret = Decoder_decode_timestamp(self);       break;
-            case 2:   ret = Decoder_decode_positive_bignum(self); break;
-            case 3:   ret = Decoder_decode_negative_bignum(self); break;
-            case 4:   ret = Decoder_decode_fraction(self);        break;
-            case 5:   ret = Decoder_decode_bigfloat(self);        break;
-            case 28:  ret = Decoder_decode_shareable(self);       break;
-            case 29:  ret = Decoder_decode_shared(self);          break;
-            case 30:  ret = Decoder_decode_rational(self);        break;
-            case 35:  ret = Decoder_decode_regexp(self);          break;
-            case 36:  ret = Decoder_decode_mime(self);            break;
-            case 37:  ret = Decoder_decode_uuid(self);            break;
-            case 258: ret = Decoder_decode_set(self);             break;
+            case 0:   ret = CBORDecoder_decode_datestr(self);         break;
+            case 1:   ret = CBORDecoder_decode_timestamp(self);       break;
+            case 2:   ret = CBORDecoder_decode_positive_bignum(self); break;
+            case 3:   ret = CBORDecoder_decode_negative_bignum(self); break;
+            case 4:   ret = CBORDecoder_decode_fraction(self);        break;
+            case 5:   ret = CBORDecoder_decode_bigfloat(self);        break;
+            case 28:  ret = CBORDecoder_decode_shareable(self);       break;
+            case 29:  ret = CBORDecoder_decode_shared(self);          break;
+            case 30:  ret = CBORDecoder_decode_rational(self);        break;
+            case 35:  ret = CBORDecoder_decode_regexp(self);          break;
+            case 36:  ret = CBORDecoder_decode_mime(self);            break;
+            case 37:  ret = CBORDecoder_decode_uuid(self);            break;
+            case 258: ret = CBORDecoder_decode_set(self);             break;
             default:
-                tag = Tag_New(tagnum);
+                tag = CBORTag_New(tagnum);
                 if (tag) {
-                    Decoder__set_shareable(self, tag);
-                    // XXX Recursive call
-                    value = Decoder_decode_unshared(self);
+                    set_shareable(self, tag);
+                    value = CBORDecoder_decode_unshared(self);
                     if (value) {
-                        if (Tag_SetValue(tag, value) == 0) {
+                        if (CBORTag_SetValue(tag, value) == 0) {
                             if (self->tag_hook == Py_None) {
                                 Py_INCREF(tag);
                                 ret = tag;
                             } else {
                                 ret = PyObject_CallFunctionObjArgs(
                                         self->tag_hook, self, tag, NULL);
-                                Decoder__set_shareable(self, ret);
+                                set_shareable(self, ret);
                             }
                         }
                         Py_DECREF(value);
@@ -798,7 +795,7 @@ Decoder__decode_semantic(DecoderObject *self, uint8_t subtype)
 
 
 static PyObject *
-Decoder__parse_datestr(DecoderObject *self, PyObject *str)
+parse_datestr(CBORDecoderObject *self, PyObject *str)
 {
     char *buf, *p;
     Py_ssize_t size;
@@ -841,7 +838,7 @@ Decoder__parse_datestr(DecoderObject *self, PyObject *str)
                     (offset_sign ? -1 : 1) *
                     (offset_H * 3600 + offset_M * 60), 0);
             if (delta) {
-#if PY_MAJOR_VERSION > 3 || PY_MINOR_VERSION >= 7
+#if PY_VERSION_HEX >= 0x03070000
                 tz = PyTimeZone_FromOffset(delta);
 #else
                 tz = PyObject_CallFunctionObjArgs(
@@ -862,24 +859,23 @@ Decoder__parse_datestr(DecoderObject *self, PyObject *str)
 }
 
 
-// Decoder.decode_datestr(self)
+// CBORDecoder.decode_datestr(self)
 static PyObject *
-Decoder_decode_datestr(DecoderObject *self)
+CBORDecoder_decode_datestr(CBORDecoderObject *self)
 {
     // semantic type 0
     PyObject *match, *str, *ret = NULL;
 
     if (!_CBOAR_datestr_re && _CBOAR_init_re_compile() == -1)
         return NULL;
-    // XXX Recursive call
-    str = Decoder_decode(self);
+    str = CBORDecoder_decode(self);
     if (str) {
         if (PyUnicode_Check(str)) {
             match = PyObject_CallMethodObjArgs(
                     _CBOAR_datestr_re, _CBOAR_str_match, str, NULL);
             if (match) {
                 if (match != Py_None)
-                    ret = Decoder__parse_datestr(self, str);
+                    ret = parse_datestr(self, str);
                 else
                     PyErr_Format(PyExc_ValueError,
                             "invalid datetime string %R", str);
@@ -889,22 +885,21 @@ Decoder_decode_datestr(DecoderObject *self)
             PyErr_Format(PyExc_ValueError, "invalid datetime value %R", str);
         Py_DECREF(str);
     }
-    Decoder__set_shareable(self, ret);
+    set_shareable(self, ret);
     return ret;
 }
 
 
-// Decoder.decode_timestamp(self)
+// CBORDecoder.decode_timestamp(self)
 static PyObject *
-Decoder_decode_timestamp(DecoderObject *self)
+CBORDecoder_decode_timestamp(CBORDecoderObject *self)
 {
     // semantic type 1
     PyObject *num, *tuple, *ret = NULL;
 
     if (!_CBOAR_timezone_utc && _CBOAR_init_timezone_utc() == -1)
         return NULL;
-    // XXX Recursive call
-    num = Decoder_decode(self);
+    num = CBORDecoder_decode(self);
     if (num) {
         if (PyNumber_Check(num)) {
             tuple = PyTuple_Pack(2, num, _CBOAR_timezone_utc);
@@ -917,20 +912,19 @@ Decoder_decode_timestamp(DecoderObject *self)
         }
         Py_DECREF(num);
     }
-    Decoder__set_shareable(self, ret);
+    set_shareable(self, ret);
     return ret;
 }
 
 
-// Decoder.decode_positive_bignum(self)
+// CBORDecoder.decode_positive_bignum(self)
 static PyObject *
-Decoder_decode_positive_bignum(DecoderObject *self)
+CBORDecoder_decode_positive_bignum(CBORDecoderObject *self)
 {
     // semantic type 2
     PyObject *bytes, *ret = NULL;
 
-    // XXX Recursive call
-    bytes = Decoder_decode(self);
+    bytes = CBORDecoder_decode(self);
     if (bytes) {
         if (PyBytes_CheckExact(bytes))
             ret = PyObject_CallMethod(
@@ -939,19 +933,19 @@ Decoder_decode_positive_bignum(DecoderObject *self)
             PyErr_Format(PyExc_ValueError, "invalid bignum value %R", bytes);
         Py_DECREF(bytes);
     }
-    Decoder__set_shareable(self, ret);
+    set_shareable(self, ret);
     return ret;
 }
 
 
-// Decoder.decode_negative_bignum(self)
+// CBORDecoder.decode_negative_bignum(self)
 static PyObject *
-Decoder_decode_negative_bignum(DecoderObject *self)
+CBORDecoder_decode_negative_bignum(CBORDecoderObject *self)
 {
     // semantic type 3
     PyObject *value, *one, *neg, *ret = NULL;
 
-    value = Decoder_decode_positive_bignum(self);
+    value = CBORDecoder_decode_positive_bignum(self);
     if (value) {
         one = PyLong_FromLong(1);
         if (one) {
@@ -964,14 +958,14 @@ Decoder_decode_negative_bignum(DecoderObject *self)
         }
         Py_DECREF(value);
     }
-    Decoder__set_shareable(self, ret);
+    set_shareable(self, ret);
     return ret;
 }
 
 
-// Decoder.decode_fraction(self)
+// CBORDecoder.decode_fraction(self)
 static PyObject *
-Decoder_decode_fraction(DecoderObject *self)
+CBORDecoder_decode_fraction(CBORDecoderObject *self)
 {
     // semantic type 4
     PyObject *tuple, *tmp, *sig, *exp, *ten, *ret = NULL;
@@ -980,7 +974,7 @@ Decoder_decode_fraction(DecoderObject *self)
         return NULL;
     // NOTE: There's no particular necessity for this to be immutable, it's
     // just a performance choice
-    tuple = Decoder_decode_immutable_unshared(self);
+    tuple = CBORDecoder_decode_immutable_unshared(self);
     if (tuple) {
         if (PyTuple_CheckExact(tuple) && PyTuple_GET_SIZE(tuple) == 2) {
             exp = PyTuple_GET_ITEM(tuple, 0);
@@ -997,14 +991,14 @@ Decoder_decode_fraction(DecoderObject *self)
         }
         Py_DECREF(tuple);
     }
-    Decoder__set_shareable(self, ret);
+    set_shareable(self, ret);
     return ret;
 }
 
 
-// Decoder.decode_bigfloat
+// CBORDecoder.decode_bigfloat
 static PyObject *
-Decoder_decode_bigfloat(DecoderObject *self)
+CBORDecoder_decode_bigfloat(CBORDecoderObject *self)
 {
     // semantic type 5
     PyObject *tuple, *tmp, *sig, *exp, *two, *ret = NULL;
@@ -1012,7 +1006,7 @@ Decoder_decode_bigfloat(DecoderObject *self)
     if (!_CBOAR_Decimal && _CBOAR_init_Decimal() == -1)
         return NULL;
     // NOTE: see semantic type 4
-    tuple = Decoder_decode_immutable_unshared(self);
+    tuple = CBORDecoder_decode_immutable_unshared(self);
     if (tuple) {
         if (PyTuple_CheckExact(tuple) && PyTuple_GET_SIZE(tuple) == 2) {
             exp = PyTuple_GET_ITEM(tuple, 0);
@@ -1029,14 +1023,14 @@ Decoder_decode_bigfloat(DecoderObject *self)
         }
         Py_DECREF(tuple);
     }
-    Decoder__set_shareable(self, ret);
+    set_shareable(self, ret);
     return ret;
 }
 
 
-// Decoder.decode_shareable(self)
+// CBORDecoder.decode_shareable(self)
 static PyObject *
-Decoder_decode_shareable(DecoderObject *self)
+CBORDecoder_decode_shareable(CBORDecoderObject *self)
 {
     // semantic type 28
     int32_t old_index;
@@ -1045,21 +1039,20 @@ Decoder_decode_shareable(DecoderObject *self)
     old_index = self->shared_index;
     self->shared_index = PyList_GET_SIZE(self->shareables);
     if (PyList_Append(self->shareables, Py_None) == 0)
-        // XXX Recursive call
-        ret = Decoder_decode(self);
+        ret = CBORDecoder_decode(self);
     self->shared_index = old_index;
     return ret;
 }
 
 
-// Decoder.decode_shared(self)
+// CBORDecoder.decode_shared(self)
 static PyObject *
-Decoder_decode_shared(DecoderObject *self)
+CBORDecoder_decode_shared(CBORDecoderObject *self)
 {
     // semantic type 29
     PyObject *index, *ret = NULL;
 
-    index = Decoder_decode_unshared(self);
+    index = CBORDecoder_decode_unshared(self);
     if (index) {
         if (PyLong_CheckExact(index)) {
             ret = PyList_GetItem(self->shareables, PyLong_AsSsize_t(index));
@@ -1086,9 +1079,9 @@ Decoder_decode_shared(DecoderObject *self)
 }
 
 
-// Decoder.decode_rational(self)
+// CBORDecoder.decode_rational(self)
 static PyObject *
-Decoder_decode_rational(DecoderObject *self)
+CBORDecoder_decode_rational(CBORDecoderObject *self)
 {
     // semantic type 30
     PyObject *tuple, *ret = NULL;
@@ -1096,7 +1089,7 @@ Decoder_decode_rational(DecoderObject *self)
     if (!_CBOAR_Fraction && _CBOAR_init_Fraction() == -1)
         return NULL;
     // NOTE: see semantic type 4
-    tuple = Decoder_decode_immutable_unshared(self);
+    tuple = CBORDecoder_decode_immutable_unshared(self);
     if (tuple) {
         if (PyTuple_CheckExact(tuple) && PyTuple_GET_SIZE(tuple) == 2) {
             ret = PyObject_CallFunctionObjArgs(
@@ -1107,14 +1100,14 @@ Decoder_decode_rational(DecoderObject *self)
         }
         Py_DECREF(tuple);
     }
-    Decoder__set_shareable(self, ret);
+    set_shareable(self, ret);
     return ret;
 }
 
 
-// Decoder.decode_regexp(self)
+// CBORDecoder.decode_regexp(self)
 static PyObject *
-Decoder_decode_regexp(DecoderObject *self)
+CBORDecoder_decode_regexp(CBORDecoderObject *self)
 {
     // semantic type 35
     PyObject *pattern, *ret = NULL;
@@ -1122,19 +1115,19 @@ Decoder_decode_regexp(DecoderObject *self)
     if (!_CBOAR_re_compile && _CBOAR_init_re_compile() == -1)
         return NULL;
     // NOTE: see semantic type 4
-    pattern = Decoder_decode_immutable_unshared(self);
+    pattern = CBORDecoder_decode_immutable_unshared(self);
     if (pattern) {
         ret = PyObject_CallFunctionObjArgs(_CBOAR_re_compile, pattern, NULL);
         Py_DECREF(pattern);
     }
-    Decoder__set_shareable(self, ret);
+    set_shareable(self, ret);
     return ret;
 }
 
 
-// Decoder.decode_mime(self)
+// CBORDecoder.decode_mime(self)
 static PyObject *
-Decoder_decode_mime(DecoderObject *self)
+CBORDecoder_decode_mime(CBORDecoderObject *self)
 {
     // semantic type 36
     PyObject *value, *parser, *ret = NULL;
@@ -1142,7 +1135,7 @@ Decoder_decode_mime(DecoderObject *self)
     if (!_CBOAR_Parser && _CBOAR_init_Parser() == -1)
         return NULL;
     // NOTE: see semantic type 4
-    value = Decoder_decode_immutable_unshared(self);
+    value = CBORDecoder_decode_immutable_unshared(self);
     if (value) {
         parser = PyObject_CallFunctionObjArgs(_CBOAR_Parser, NULL);
         if (parser) {
@@ -1152,14 +1145,14 @@ Decoder_decode_mime(DecoderObject *self)
         }
         Py_DECREF(value);
     }
-    Decoder__set_shareable(self, ret);
+    set_shareable(self, ret);
     return ret;
 }
 
 
-// Decoder.decode_uuid(self)
+// CBORDecoder.decode_uuid(self)
 static PyObject *
-Decoder_decode_uuid(DecoderObject *self)
+CBORDecoder_decode_uuid(CBORDecoderObject *self)
 {
     // semantic type 37
     PyObject *bytes, *ret = NULL;
@@ -1167,25 +1160,24 @@ Decoder_decode_uuid(DecoderObject *self)
     if (!_CBOAR_UUID && _CBOAR_init_UUID() == -1)
         return NULL;
     // NOTE: see semantic type 4
-    bytes = Decoder_decode_immutable_unshared(self);
+    bytes = CBORDecoder_decode_immutable_unshared(self);
     if (bytes) {
         ret = PyObject_CallFunctionObjArgs(_CBOAR_UUID, Py_None, bytes, NULL);
         Py_DECREF(bytes);
     }
-    Decoder__set_shareable(self, ret);
+    set_shareable(self, ret);
     return ret;
 }
 
 
-// Decoder.decode_set(self)
+// CBORDecoder.decode_set(self)
 static PyObject *
-Decoder_decode_set(DecoderObject *self)
+CBORDecoder_decode_set(CBORDecoderObject *self)
 {
     // semantic type 258
     PyObject *array, *ret = NULL;
 
-    // XXX Recursive call
-    array = Decoder_decode_immutable(self);
+    array = CBORDecoder_decode_immutable(self);
     if (array) {
         if (PyList_CheckExact(array) || PyTuple_CheckExact(array)) {
             if (self->immutable)
@@ -1200,7 +1192,7 @@ Decoder_decode_set(DecoderObject *self)
     // unlike lists/dicts a set cannot contain a reference to itself (a set
     // is unhashable). Nor can a frozenset contain a reference to itself
     // because it can't refer to itself during its own construction.
-    Decoder__set_shareable(self, ret);
+    set_shareable(self, ret);
     return ret;
 }
 
@@ -1208,7 +1200,7 @@ Decoder_decode_set(DecoderObject *self)
 // Special decoders //////////////////////////////////////////////////////////
 
 static PyObject *
-Decoder__decode_special(DecoderObject *self, uint8_t subtype)
+decode_special(CBORDecoderObject *self, uint8_t subtype)
 {
     // major type 7
     PyObject *tag, *ret = NULL;
@@ -1230,10 +1222,10 @@ Decoder__decode_special(DecoderObject *self, uint8_t subtype)
             case 21: Py_RETURN_TRUE;
             case 22: Py_RETURN_NONE;
             case 23: CBOAR_RETURN_UNDEFINED;
-            case 24: ret = Decoder_decode_simplevalue(self); break;
-            case 25: ret = Decoder_decode_float16(self);     break;
-            case 26: ret = Decoder_decode_float32(self);     break;
-            case 27: ret = Decoder_decode_float64(self);     break;
+            case 24: return CBORDecoder_decode_simplevalue(self);
+            case 25: return CBORDecoder_decode_float16(self);
+            case 26: return CBORDecoder_decode_float32(self);
+            case 27: return CBORDecoder_decode_float64(self);
             case 31: CBOAR_RETURN_BREAK;
             default:
                 // XXX Raise exception?
@@ -1244,14 +1236,14 @@ Decoder__decode_special(DecoderObject *self, uint8_t subtype)
 }
 
 
-// Decoder.decode_simplevalue(self)
+// CBORDecoder.decode_simplevalue(self)
 static PyObject *
-Decoder_decode_simplevalue(DecoderObject *self)
+CBORDecoder_decode_simplevalue(CBORDecoderObject *self)
 {
     PyObject *tag, *ret = NULL;
     uint8_t buf;
 
-    if (Decoder__read(self, (char*)&buf, sizeof(uint8_t)) == 0) {
+    if (fp_read(self, (char*)&buf, sizeof(uint8_t)) == 0) {
         tag = PyStructSequence_New(&CBORSimpleValueType);
         if (tag) {
             PyStructSequence_SET_ITEM(tag, 0, PyLong_FromLong(buf));
@@ -1267,9 +1259,9 @@ Decoder_decode_simplevalue(DecoderObject *self)
 }
 
 
-// Decoder.decode_float16(self)
+// CBORDecoder.decode_float16(self)
 static PyObject *
-Decoder_decode_float16(DecoderObject *self)
+CBORDecoder_decode_float16(CBORDecoderObject *self)
 {
     PyObject *ret = NULL;
     union {
@@ -1277,16 +1269,16 @@ Decoder_decode_float16(DecoderObject *self)
         char buf[sizeof(uint16_t)];
     } u;
 
-    if (Decoder__read(self, u.buf, sizeof(uint16_t)) == 0)
+    if (fp_read(self, u.buf, sizeof(uint16_t)) == 0)
         ret = PyFloat_FromDouble(unpack_float16(u.i));
-    Decoder__set_shareable(self, ret);
+    set_shareable(self, ret);
     return ret;
 }
 
 
-// Decoder.decode_float32(self)
+// CBORDecoder.decode_float32(self)
 static PyObject *
-Decoder_decode_float32(DecoderObject *self)
+CBORDecoder_decode_float32(CBORDecoderObject *self)
 {
     PyObject *ret = NULL;
     union {
@@ -1295,18 +1287,18 @@ Decoder_decode_float32(DecoderObject *self)
         char buf[sizeof(float)];
     } u;
 
-    if (Decoder__read(self, u.buf, sizeof(float)) == 0) {
+    if (fp_read(self, u.buf, sizeof(float)) == 0) {
         u.i = be32toh(u.i);
         ret = PyFloat_FromDouble(u.f);
     }
-    Decoder__set_shareable(self, ret);
+    set_shareable(self, ret);
     return ret;
 }
 
 
-// Decoder.decode_float64(self)
+// CBORDecoder.decode_float64(self)
 static PyObject *
-Decoder_decode_float64(DecoderObject *self)
+CBORDecoder_decode_float64(CBORDecoderObject *self)
 {
     PyObject *ret = NULL;
     union {
@@ -1315,70 +1307,74 @@ Decoder_decode_float64(DecoderObject *self)
         char buf[sizeof(double)];
     } u;
 
-    if (Decoder__read(self, u.buf, sizeof(double)) == 0) {
+    if (fp_read(self, u.buf, sizeof(double)) == 0) {
         u.i = be64toh(u.i);
         ret = PyFloat_FromDouble(u.f);
     }
-    Decoder__set_shareable(self, ret);
+    set_shareable(self, ret);
     return ret;
 }
 
 
-// Decoder.decode(self) -> obj
+// CBORDecoder.decode(self) -> obj
 static PyObject *
-Decoder_decode(DecoderObject *self)
+CBORDecoder_decode(CBORDecoderObject *self)
 {
-    LeadByte lead;
     PyObject *ret = NULL;
+    LeadByte lead;
 
-    if (Decoder__read(self, &lead.byte, 1) == 0) {
+    if (Py_EnterRecursiveCall(" in CBORDecoder.decode"))
+        return NULL;
+
+    if (fp_read(self, &lead.byte, 1) == 0) {
         switch (lead.major) {
-            case 0: ret = Decoder__decode_uint(self, lead.subtype);       break;
-            case 1: ret = Decoder__decode_negint(self, lead.subtype);     break;
-            case 2: ret = Decoder__decode_bytestring(self, lead.subtype); break;
-            case 3: ret = Decoder__decode_string(self, lead.subtype);     break;
-            case 4: ret = Decoder__decode_array(self, lead.subtype);      break;
-            case 5: ret = Decoder__decode_map(self, lead.subtype);        break;
-            case 6: ret = Decoder__decode_semantic(self, lead.subtype);   break;
-            case 7: ret = Decoder__decode_special(self, lead.subtype);    break;
+            case 0: ret = decode_uint(self, lead.subtype);       break;
+            case 1: ret = decode_negint(self, lead.subtype);     break;
+            case 2: ret = decode_bytestring(self, lead.subtype); break;
+            case 3: ret = decode_string(self, lead.subtype);     break;
+            case 4: ret = decode_array(self, lead.subtype);      break;
+            case 5: ret = decode_map(self, lead.subtype);        break;
+            case 6: ret = decode_semantic(self, lead.subtype);   break;
+            case 7: ret = decode_special(self, lead.subtype);    break;
             default: assert(0);
         }
     }
+    Py_LeaveRecursiveCall();
     return ret;
 }
 
 
 // TODO Consolidate these utility methods into arguments on decode?
 static PyObject *
-Decoder_decode_unshared(DecoderObject *self)
+CBORDecoder_decode_unshared(CBORDecoderObject *self)
 {
     int32_t old_index;
     PyObject *ret;
 
     old_index = self->shared_index;
     self->shared_index = -1;
-    ret = Decoder_decode(self);
+    ret = CBORDecoder_decode(self);
     self->shared_index = old_index;
     return ret;
 }
 
 
 static PyObject *
-Decoder_decode_immutable(DecoderObject *self)
+CBORDecoder_decode_immutable(CBORDecoderObject *self)
 {
     bool old_immutable;
     PyObject *ret;
 
     old_immutable = self->immutable;
     self->immutable = true;
-    ret = Decoder_decode(self);
+    ret = CBORDecoder_decode(self);
     self->immutable = old_immutable;
     return ret;
 }
 
 
 static PyObject *
-Decoder_decode_immutable_unshared(DecoderObject *self)
+CBORDecoder_decode_immutable_unshared(CBORDecoderObject *self)
 {
     bool old_immutable;
     int32_t old_index;
@@ -1388,7 +1384,7 @@ Decoder_decode_immutable_unshared(DecoderObject *self)
     old_index = self->shared_index;
     self->immutable = true;
     self->shared_index = -1;
-    ret = Decoder_decode(self);
+    ret = CBORDecoder_decode(self);
     self->immutable = old_immutable;
     self->shared_index = old_index;
     return ret;
@@ -1399,9 +1395,9 @@ Decoder_decode_immutable_unshared(DecoderObject *self)
 
 #define PUBLIC_MAJOR(type)                                                   \
     static PyObject *                                                        \
-    Decoder_decode_##type(DecoderObject *self, PyObject *subtype)            \
+    CBORDecoder_decode_##type(CBORDecoderObject *self, PyObject *subtype)    \
     {                                                                        \
-        return Decoder__decode_##type(self, PyLong_AsUnsignedLong(subtype)); \
+        return decode_##type(self, PyLong_AsUnsignedLong(subtype));          \
     }
 
 PUBLIC_MAJOR(uint);
@@ -1415,74 +1411,82 @@ PUBLIC_MAJOR(special);
 
 #undef PUBLIC_MAJOR
 
-static PyGetSetDef Decoder_getsetters[] = {
-    {"fp", (getter) Decoder_get_fp, (setter) Decoder_set_fp,
+static PyGetSetDef CBORDecoder_getsetters[] = {
+    {"fp",
+        (getter) _CBORDecoder_get_fp, (setter) _CBORDecoder_set_fp,
         "input file-like object", NULL},
-    {"tag_hook", (getter) Decoder_get_tag_hook, (setter) Decoder_set_tag_hook,
+    {"tag_hook",
+        (getter) _CBORDecoder_get_tag_hook, (setter) _CBORDecoder_set_tag_hook,
         "hook called when decoding an unknown semantic tag", NULL},
-    {"object_hook", (getter) Decoder_get_object_hook, (setter) Decoder_set_object_hook,
+    {"object_hook",
+        (getter) _CBORDecoder_get_object_hook, (setter) _CBORDecoder_set_object_hook,
         "hook called when decoding any dict", NULL},
-    {"str_errors", (getter) Decoder_get_str_errors, (setter) Decoder_set_str_errors,
+    {"str_errors",
+        (getter) _CBORDecoder_get_str_errors, (setter) _CBORDecoder_set_str_errors,
         "the error mode to use when decoding UTF-8 encoded strings"},
     {NULL}
 };
 
-static PyMethodDef Decoder_methods[] = {
-    {"decode", (PyCFunction) Decoder_decode, METH_NOARGS,
+static PyMethodDef CBORDecoder_methods[] = {
+    {"decode", (PyCFunction) CBORDecoder_decode, METH_NOARGS,
         "decode the next value from the input"},
-    {"decode_uint", (PyCFunction) Decoder_decode_uint, METH_O,
+    {"decode_uint", (PyCFunction) CBORDecoder_decode_uint, METH_O,
         "decode an unsigned integer from the input"},
-    {"decode_negint", (PyCFunction) Decoder_decode_negint, METH_O,
+    {"decode_negint", (PyCFunction) CBORDecoder_decode_negint, METH_O,
         "decode a negative integer from the input"},
-    {"decode_bytestring", (PyCFunction) Decoder_decode_bytestring, METH_O,
+    {"decode_bytestring", (PyCFunction) CBORDecoder_decode_bytestring, METH_O,
         "decode a bytes string from the input"},
-    {"decode_string", (PyCFunction) Decoder_decode_string, METH_O,
+    {"decode_string", (PyCFunction) CBORDecoder_decode_string, METH_O,
         "decode a unicode string from the input"},
-    {"decode_array", (PyCFunction) Decoder_decode_array, METH_O,
+    {"decode_array", (PyCFunction) CBORDecoder_decode_array, METH_O,
         "decode a list or tuple from the input"},
-    {"decode_map", (PyCFunction) Decoder_decode_map, METH_O,
+    {"decode_map", (PyCFunction) CBORDecoder_decode_map, METH_O,
         "decode a dict from the input"},
-    {"decode_semantic", (PyCFunction) Decoder_decode_semantic, METH_O,
+    {"decode_semantic", (PyCFunction) CBORDecoder_decode_semantic, METH_O,
         "decode a semantically tagged value from the input"},
-    {"decode_special", (PyCFunction) Decoder_decode_special, METH_O,
+    {"decode_special", (PyCFunction) CBORDecoder_decode_special, METH_O,
         "decode a special value from the input"},
-    {"decode_datestr", (PyCFunction) Decoder_decode_datestr, METH_NOARGS,
+    {"decode_datestr", (PyCFunction) CBORDecoder_decode_datestr, METH_NOARGS,
         "decode a date-time string from the input"},
-    {"decode_timestamp", (PyCFunction) Decoder_decode_timestamp, METH_NOARGS,
+    {"decode_timestamp", (PyCFunction) CBORDecoder_decode_timestamp, METH_NOARGS,
         "decode a timestamp offset from the input"},
-    {"decode_positive_bignum", (PyCFunction) Decoder_decode_positive_bignum, METH_NOARGS,
+    {"decode_positive_bignum",
+        (PyCFunction) CBORDecoder_decode_positive_bignum, METH_NOARGS,
         "decode a positive big-integer from the input"},
-    {"decode_negative_bignum", (PyCFunction) Decoder_decode_negative_bignum, METH_NOARGS,
+    {"decode_negative_bignum",
+        (PyCFunction) CBORDecoder_decode_negative_bignum, METH_NOARGS,
         "decode a negative big-integer from the input"},
-    {"decode_shareable", (PyCFunction) Decoder_decode_shareable, METH_NOARGS,
+    {"decode_shareable",
+        (PyCFunction) CBORDecoder_decode_shareable, METH_NOARGS,
         "decode a shareable value from the input"},
-    {"decode_shared", (PyCFunction) Decoder_decode_shared, METH_NOARGS,
+    {"decode_shared", (PyCFunction) CBORDecoder_decode_shared, METH_NOARGS,
         "decode a shared reference from the input"},
-    {"decode_set", (PyCFunction) Decoder_decode_set, METH_NOARGS,
+    {"decode_set", (PyCFunction) CBORDecoder_decode_set, METH_NOARGS,
         "decode a set or frozenset from the input"},
-    {"decode_simplevalue", (PyCFunction) Decoder_decode_simplevalue, METH_NOARGS,
+    {"decode_simplevalue",
+        (PyCFunction) CBORDecoder_decode_simplevalue, METH_NOARGS,
         "decode a CBORSimpleValue from the input"},
-    {"decode_float16", (PyCFunction) Decoder_decode_float16, METH_NOARGS,
+    {"decode_float16", (PyCFunction) CBORDecoder_decode_float16, METH_NOARGS,
         "decode a half-precision floating-point value from the input"},
-    {"decode_float32", (PyCFunction) Decoder_decode_float32, METH_NOARGS,
+    {"decode_float32", (PyCFunction) CBORDecoder_decode_float32, METH_NOARGS,
         "decode a floating-point value from the input"},
-    {"decode_float64", (PyCFunction) Decoder_decode_float64, METH_NOARGS,
+    {"decode_float64", (PyCFunction) CBORDecoder_decode_float64, METH_NOARGS,
         "decode a double-precision floating-point value from the input"},
-    {"set_shareable", (PyCFunction) Decoder_set_shareable, METH_O,
+    {"set_shareable", (PyCFunction) CBORDecoder_set_shareable, METH_O,
         "set the specified object as the current shareable reference"},
     {NULL}
 };
 
-PyTypeObject DecoderType = {
+PyTypeObject CBORDecoderType = {
     PyVarObject_HEAD_INIT(NULL, 0)
-    .tp_name = "_cboar.Decoder",
-    .tp_doc = "CBOAR decoder objects",
-    .tp_basicsize = sizeof(DecoderObject),
+    .tp_name = "_cboar.CBORDecoder",
+    .tp_doc = "CBOR decoder objects",
+    .tp_basicsize = sizeof(CBORDecoderObject),
     .tp_itemsize = 0,
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
-    .tp_new = Decoder_new,
-    .tp_init = (initproc) Decoder_init,
-    .tp_dealloc = (destructor) Decoder_dealloc,
-    .tp_getset = Decoder_getsetters,
-    .tp_methods = Decoder_methods,
+    .tp_new = CBORDecoder_new,
+    .tp_init = (initproc) CBORDecoder_init,
+    .tp_dealloc = (destructor) CBORDecoder_dealloc,
+    .tp_getset = CBORDecoder_getsetters,
+    .tp_methods = CBORDecoder_methods,
 };

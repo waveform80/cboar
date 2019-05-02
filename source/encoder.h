@@ -2,6 +2,12 @@
 #include <Python.h>
 #include <stdbool.h>
 
+// Constants for decimal_classify
+#define DC_NORMAL 0
+#define DC_INFINITE 1
+#define DC_NAN 2
+#define DC_ERROR -1
+
 typedef struct {
     PyObject_HEAD
     PyObject *write;    // cached write() method of fp
@@ -14,6 +20,6 @@ typedef struct {
     uint8_t enc_style;  // 0=regular, 1=canonical, 2=custom
     bool timestamp_format;
     bool value_sharing;
-} EncoderObject;
+} CBOREncoderObject;
 
-PyTypeObject EncoderType;
+PyTypeObject CBOREncoderType;
