@@ -17,6 +17,7 @@ classifiers = ['Development Status :: 5 - Production/Stable',
                'License :: OSI Approved :: MIT License',
                'Intended Audience :: Developers',
                'Programming Language :: Python :: 3',
+               'Programming Language :: Python :: Implementation :: CPython',
                'Topic :: Software Development']
 
 setup(

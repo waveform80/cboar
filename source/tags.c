@@ -160,10 +160,16 @@ static PyMemberDef CBORTag_members[] = {
     {NULL}
 };
 
+PyDoc_STRVAR(CBORTag__doc__,
+"The CBORTag class represents a semantically tagged value in a CBOR\n"
+"encoded stream. The :attr:`tag` attribute holds the numeric tag\n"
+"associated with the stored :attr:`value`.\n"
+);
+
 PyTypeObject CBORTagType = {
     PyVarObject_HEAD_INIT(NULL, 0)
     .tp_name = "_cboar.CBORTag",
-    .tp_doc = "CBOR tag objects",
+    .tp_doc = CBORTag__doc__,
     .tp_basicsize = sizeof(CBORTagObject),
     .tp_itemsize = 0,
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,

@@ -323,6 +323,31 @@ fp_read(CBORDecoderObject *self, char *buf, const uint64_t size)
 }
 
 
+// CBORDecoder.read(self, length) -> bytes
+static PyObject *
+CBORDecoder_read(CBORDecoderObject *self, PyObject *length)
+{
+    PyObject *ret = NULL;
+    Py_ssize_t len;
+
+    if (!PyLong_Check(length)) {
+        PyErr_SetString(PyExc_ValueError, "expected integer length to read");
+        return NULL;
+    }
+    len = PyLong_AsSsize_t(length);
+    if (PyErr_Occurred())
+        return NULL;
+    ret = PyBytes_FromStringAndSize(NULL, len);
+    if (ret) {
+        if (fp_read(self, PyBytes_AS_STRING(ret), len) == -1) {
+            Py_DECREF(ret);
+            ret = NULL;
+        }
+    }
+    return ret;
+}
+
+
 static inline void
 set_shareable(CBORDecoderObject *self, PyObject *value)
 {
@@ -1449,6 +1474,9 @@ static PyGetSetDef CBORDecoder_getsetters[] = {
 };
 
 static PyMethodDef CBORDecoder_methods[] = {
+    {"read", (PyCFunction) CBORDecoder_read, METH_O,
+        "read the specified number of bytes from the input"},
+    // Decoding methods
     {"decode", (PyCFunction) CBORDecoder_decode, METH_NOARGS,
         "decode the next value from the input"},
     {"decode_uint", (PyCFunction) CBORDecoder_decode_uint, METH_O,
@@ -1498,10 +1526,35 @@ static PyMethodDef CBORDecoder_methods[] = {
     {NULL}
 };
 
+PyDoc_STRVAR(CBORDecoder__doc__,
+"The CBORDecoder class implements a fully featured `CBOR`_ decoder with\n"
+"several extensions for handling shared references, big integers,\n"
+"rational numbers and so on. Typically the class is not used directly,\n"
+"but the :func:`cboar.load` and :func:`cboar.loads` functions are called\n"
+"to indirectly construct and use the class.\n"
+"\n"
+"When the class is constructed manually, the main entry points are\n"
+":meth:`decode` and :meth:`decode_from_bytes`.\n"
+"\n"
+":param tag_hook:\n"
+"    callable that takes 2 arguments: the decoder instance, and the\n"
+"    :class:`_cboar.CBORTag` to be decoded. This callback is invoked for\n"
+"    any tags for which there is no built-in decoder. The return value is\n"
+"    substituted for the :class:`_cboar.CBORTag` object in the\n"
+"    deserialized output\n"
+":param object_hook:\n"
+"    callable that takes 2 arguments: the decoder instance, and a\n"
+"    dictionary. This callback is invoked for each deserialized\n"
+"    :class:`dict` object. The return value is substituted for the dict\n"
+"    in the deserialized output.\n"
+"\n"
+".. _CBOR: https://cbor.io/\n"
+);
+
 PyTypeObject CBORDecoderType = {
     PyVarObject_HEAD_INIT(NULL, 0)
     .tp_name = "_cboar.CBORDecoder",
-    .tp_doc = "CBOR decoder objects",
+    .tp_doc = CBORDecoder__doc__,
     .tp_basicsize = sizeof(CBORDecoderObject),
     .tp_itemsize = 0,
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE | Py_TPFLAGS_HAVE_GC,

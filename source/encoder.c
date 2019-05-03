@@ -23,8 +23,6 @@ static int _CBOREncoder_set_fp(CBOREncoderObject *, PyObject *, void *);
 static int _CBOREncoder_set_default(CBOREncoderObject *, PyObject *, void *);
 static int _CBOREncoder_set_timezone(CBOREncoderObject *, PyObject *, void *);
 
-// TODO Docstrings
-
 
 // Constructors and destructors //////////////////////////////////////////////
 
@@ -255,6 +253,20 @@ fp_write(CBOREncoderObject *self, const char *buf, const int length)
         Py_DECREF(bytes);
     }
     return ret ? 0 : -1;
+}
+
+
+// CBOREncoder.write(self, data)
+static PyObject *
+CBOREncoder_write(CBOREncoderObject *self, PyObject *data)
+{
+    if (!PyBytes_Check(data)) {
+        PyErr_SetString(PyExc_ValueError, "expected bytes for writing");
+        return NULL;
+    }
+    if (fp_write(self, PyBytes_AS_STRING(data), PyBytes_GET_SIZE(data)) == -1)
+        return NULL;
+    Py_RETURN_NONE;
 }
 
 
@@ -1738,6 +1750,8 @@ static PyGetSetDef CBOREncoder_getsetters[] = {
 static PyMethodDef CBOREncoder_methods[] = {
     {"_find_encoder", (PyCFunction) CBOREncoder_find_encoder, METH_O,
         "find an encoding function for the specified type"},
+    {"write", (PyCFunction) CBOREncoder_write, METH_O,
+        "write the specified data to the output"},
     // Standard encoding methods
     {"encode", (PyCFunction) CBOREncoder_encode, METH_O,
         "encode the specified *value* to the output"},
@@ -1801,10 +1815,48 @@ static PyMethodDef CBOREncoder_methods[] = {
     {NULL}
 };
 
+PyDoc_STRVAR(CBOREncoder__doc__,
+"The CBOREncoder class implements a fully featured `CBOR`_ encoder with\n"
+"several extensions for handling shared references, big integers,\n"
+"rational numbers and so on. Typically the class is not used directly,\n"
+"but the :func:`cboar.dump` and :func:`cboar.dumps` functions are called\n"
+"to indirectly construct and use the class.\n"
+"\n"
+"When the class is constructed manually, the main entry points are\n"
+":meth:`encode` and :meth:`encode_to_bytes`.\n"
+"\n"
+":param bool datetime_as_timestamp:\n"
+"    set to ``True`` to serialize datetimes as UNIX timestamps (this\n"
+"    makes datetimes more concise on the wire, but loses the timezone\n"
+"    information)\n"
+":param datetime.tzinfo timezone:\n"
+"    the default timezone to use for serializing naive datetimes; if\n"
+"    this is not specified naive datetimes will throw a :exc:`ValueError`\n"
+"    when encoding is attempted\n"
+":param bool value_sharing:\n"
+"    set to ``True`` to allow more efficient serializing of repeated\n"
+"    values and, more importantly, cyclic data structures, at the cost\n"
+"    of extra line overhead\n"
+":param default:\n"
+"    a callable that is called by the encoder with two arguments (the\n"
+"    encoder instance and the value being encoded) when no suitable\n"
+"    encoder has been found, and should use the methods on the encoder\n"
+"    to encode any objects it wants to add to the data stream\n"
+":param int enc_style:\n"
+"    when 0 (the default), optimizes the standard encoders table for\n"
+"    faster encoding; when 1, overrides the standard encoders with\n"
+"    optimized variants of canonical encoders; when 2 (or any other\n"
+"    value), ignores the optimized tables and relies entirely on the\n"
+"    :attr:`encoders` dict to lookup encoding methods (note: this is\n"
+"    considerably slower but the most flexible option)\n"
+"\n"
+".. _CBOR: https://cbor.io/\n"
+);
+
 PyTypeObject CBOREncoderType = {
     PyVarObject_HEAD_INIT(NULL, 0)
     .tp_name = "_cboar.CBOREncoder",
-    .tp_doc = "CBOR encoder objects",
+    .tp_doc = CBOREncoder__doc__,
     .tp_basicsize = sizeof(CBOREncoderObject),
     .tp_itemsize = 0,
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE | Py_TPFLAGS_HAVE_GC,

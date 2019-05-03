@@ -418,10 +418,18 @@ cboar_free(PyObject *m)
     Py_CLEAR(_CBOAR_datestr_re);
 }
 
+PyDoc_STRVAR(_cboar__doc__,
+"The _cboar module is the C-extension backing the cboar Python module. It\n"
+"defines the base CBOREncoder, CBORDecoder, CBORTag, and undefined types\n"
+"which are operational in and of themselves, but lacks the standard load\n"
+"and dump routines which form the usual public interface. These are added\n"
+"by the cboar module which imports the _cboar module.\n"
+);
+
 static struct PyModuleDef _cboarmodule = {
     PyModuleDef_HEAD_INIT,
     .m_name = "_cboar",
-    .m_doc = NULL,
+    .m_doc = _cboar__doc__,
     .m_size = -1,
     .m_free = (freefunc) cboar_free,
 };
