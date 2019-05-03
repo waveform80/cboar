@@ -449,9 +449,14 @@ PyInit__cboar(void)
     if (!module)
         return NULL;
 
+#if PY_VERSION_HEX >= 0x03040000
     // Use PyStructSequence_InitType2 to workaround #34784 (dup of #28709)
     if (PyStructSequence_InitType2(&CBORSimpleValueType, &CBORSimpleValueDesc) == -1)
         goto error;
+#else
+    // PyStructSequence_InitType2 was added in 3.4
+    PyStructSequence_InitType(&CBORSimpleValueType, &CBORSimpleValueDesc);
+#endif
     Py_INCREF((PyObject *) &CBORSimpleValueType);
     CBORSimpleValueType.tp_new = CBORSimpleValue_new;
     if (PyModule_AddObject(
