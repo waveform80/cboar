@@ -32,5 +32,6 @@ setup(
     url='https://github.com/waveform80/cboar.git',
     classifiers=classifiers,
     packages=['cboar'],
+    extras_require={'test': ['pytest']},
     ext_modules=[_cboar],
 )
