@@ -1389,6 +1389,34 @@ CBORDecoder_decode(CBORDecoderObject *self)
 }
 
 
+// CBORDecoder.decode_from_bytes(self, data)
+static PyObject *
+CBORDecoder_decode_from_bytes(CBORDecoderObject *self, PyObject *data)
+{
+    PyObject *save_read, *buf, *ret = NULL;
+
+    if (!_CBOAR_BytesIO && _CBOAR_init_BytesIO() == -1)
+        return NULL;
+    if (!PyBytes_Check(data)) {
+        PyErr_SetString(PyExc_ValueError, "expected byte-string to decode");
+        return NULL;
+    }
+
+    save_read = self->read;
+    buf = PyObject_CallFunctionObjArgs(_CBOAR_BytesIO, data, NULL);
+    if (buf) {
+        self->read = PyObject_GetAttr(buf, _CBOAR_str_read);
+        if (self->read) {
+            ret = CBORDecoder_decode(self);
+            Py_DECREF(self->read);
+        }
+        Py_DECREF(buf);
+    }
+    self->read = save_read;
+    return ret;
+}
+
+
 // TODO Consolidate these utility methods into arguments on decode?
 static PyObject *
 CBORDecoder_decode_unshared(CBORDecoderObject *self)
@@ -1478,6 +1506,8 @@ static PyMethodDef CBORDecoder_methods[] = {
     // Decoding methods
     {"decode", (PyCFunction) CBORDecoder_decode, METH_NOARGS,
         "decode the next value from the input"},
+    {"decode_from_bytes", (PyCFunction) CBORDecoder_decode_from_bytes, METH_O,
+        "decode the specified byte-string"},
     {"decode_uint", (PyCFunction) CBORDecoder_decode_uint, METH_O,
         "decode an unsigned integer from the input"},
     {"decode_negint", (PyCFunction) CBORDecoder_decode_negint, METH_O,

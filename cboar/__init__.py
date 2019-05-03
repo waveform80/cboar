@@ -5,7 +5,7 @@ from collections import defaultdict, OrderedDict, namedtuple
 from datetime import datetime, date
 
 import _cboar
-from _cboar import (CBORTag, CBORSimpleValue, undefined)
+from _cboar import (CBORDecoder, CBORTag, CBORSimpleValue, undefined)
 
 
 default_encoders = [
@@ -71,21 +71,6 @@ class CBOREncoder(_cboar.CBOREncoder):
         self.encoders.update(default_encoders)
         if canonical:
             self.encoders.update(canonical_encoders)
-
-
-class CBORDecoder(_cboar.CBORDecoder):
-    def __init__(self, fp, tag_hook=None, object_hook=None,
-                 str_errors='strict'):
-        super().__init__(fp, tag_hook, object_hook, str_errors)
-
-    def decode_from_bytes(self, buf):
-        old_fp = self.fp
-        self.fp = io.BytesIO(buf)
-        try:
-            retval = self.decode()
-        finally:
-            self.fp = old_fp
-        return retval
 
 
 def dumps(obj, **kwargs):
