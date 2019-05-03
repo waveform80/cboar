@@ -28,17 +28,36 @@ static int _CBOREncoder_set_timezone(CBOREncoderObject *, PyObject *, void *);
 
 // Constructors and destructors //////////////////////////////////////////////
 
+static int
+CBOREncoder_traverse(CBOREncoderObject *self, visitproc visit, void *arg)
+{
+    Py_VISIT(self->write);
+    Py_VISIT(self->encoders);
+    Py_VISIT(self->default_handler);
+    Py_VISIT(self->shared);
+    Py_VISIT(self->timezone);
+    Py_VISIT(self->shared_handler);
+    return 0;
+}
+
+static int
+CBOREncoder_clear(CBOREncoderObject *self)
+{
+    Py_CLEAR(self->write);
+    Py_CLEAR(self->encoders);
+    Py_CLEAR(self->default_handler);
+    Py_CLEAR(self->shared);
+    Py_CLEAR(self->timezone);
+    Py_CLEAR(self->shared_handler);
+    return 0;
+}
+
 // CBOREncoder.__del__(self)
 static void
 CBOREncoder_dealloc(CBOREncoderObject *self)
 {
-    Py_XDECREF(self->encoders);
-    Py_XDECREF(self->output);
-    Py_XDECREF(self->write);
-    Py_XDECREF(self->default_handler);
-    Py_XDECREF(self->shared);
-    Py_XDECREF(self->timezone);
-    Py_XDECREF(self->shared_handler);
+    PyObject_GC_UnTrack(self);
+    CBOREncoder_clear(self);
     Py_TYPE(self)->tp_free((PyObject *) self);
 }
 
@@ -1788,10 +1807,12 @@ PyTypeObject CBOREncoderType = {
     .tp_doc = "CBOR encoder objects",
     .tp_basicsize = sizeof(CBOREncoderObject),
     .tp_itemsize = 0,
-    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
+    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE | Py_TPFLAGS_HAVE_GC,
     .tp_new = CBOREncoder_new,
     .tp_init = (initproc) CBOREncoder_init,
     .tp_dealloc = (destructor) CBOREncoder_dealloc,
+    .tp_traverse = (traverseproc) CBOREncoder_traverse,
+    .tp_clear = (inquiry) CBOREncoder_clear,
     .tp_members = CBOREncoder_members,
     .tp_getset = CBOREncoder_getsetters,
     .tp_methods = CBOREncoder_methods,

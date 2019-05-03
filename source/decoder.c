@@ -49,15 +49,36 @@ static PyObject * CBORDecoder_decode_immutable_unshared(CBORDecoderObject *);
 
 // Constructors and destructors //////////////////////////////////////////////
 
+static int
+CBORDecoder_traverse(CBORDecoderObject *self, visitproc visit, void *arg)
+{
+    Py_VISIT(self->read);
+    Py_VISIT(self->tag_hook);
+    Py_VISIT(self->object_hook);
+    Py_VISIT(self->shareables);
+    // No need to visit str_errors; it's only a string and can't reference us
+    // or other objects
+    return 0;
+}
+
+static int
+CBORDecoder_clear(CBORDecoderObject *self)
+{
+    Py_CLEAR(self->read);
+    Py_CLEAR(self->tag_hook);
+    Py_CLEAR(self->object_hook);
+    Py_CLEAR(self->shareables);
+    Py_CLEAR(self->str_errors);
+    return 0;
+}
+
+
 // CBORDecoder.__del__(self)
 static void
 CBORDecoder_dealloc(CBORDecoderObject *self)
 {
-    Py_XDECREF(self->read);
-    Py_XDECREF(self->tag_hook);
-    Py_XDECREF(self->object_hook);
-    Py_XDECREF(self->shareables);
-    Py_XDECREF(self->str_errors);
+    PyObject_GC_UnTrack(self);
+    CBORDecoder_clear(self);
     Py_TYPE(self)->tp_free((PyObject *) self);
 }
 
@@ -1483,10 +1504,12 @@ PyTypeObject CBORDecoderType = {
     .tp_doc = "CBOR decoder objects",
     .tp_basicsize = sizeof(CBORDecoderObject),
     .tp_itemsize = 0,
-    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
+    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE | Py_TPFLAGS_HAVE_GC,
     .tp_new = CBORDecoder_new,
     .tp_init = (initproc) CBORDecoder_init,
     .tp_dealloc = (destructor) CBORDecoder_dealloc,
+    .tp_traverse = (traverseproc) CBORDecoder_traverse,
+    .tp_clear = (inquiry) CBORDecoder_clear,
     .tp_getset = CBORDecoder_getsetters,
     .tp_methods = CBORDecoder_methods,
 };

@@ -6,11 +6,26 @@
 
 // Constructors and destructors //////////////////////////////////////////////
 
+static int
+CBORTag_traverse(CBORTagObject *self, visitproc visit, void *arg)
+{
+    Py_VISIT(self->value);
+    return 0;
+}
+
+static int
+CBORTag_clear(CBORTagObject *self)
+{
+    Py_CLEAR(self->value);
+    return 0;
+}
+
 // CBORTag.__del__(self)
 static void
 CBORTag_dealloc(CBORTagObject *self)
 {
-    Py_XDECREF(self->value);
+    PyObject_GC_UnTrack(self);
+    CBORTag_clear(self);
     Py_TYPE(self)->tp_free((PyObject *) self);
 }
 
@@ -106,7 +121,7 @@ CBORTag_New(uint64_t tag)
 {
     CBORTagObject *ret = NULL;
 
-    ret = PyObject_New(CBORTagObject, &CBORTagType);
+    ret = PyObject_GC_New(CBORTagObject, &CBORTagType);
     if (ret) {
         ret->tag = tag;
         Py_INCREF(Py_None);
@@ -151,10 +166,12 @@ PyTypeObject CBORTagType = {
     .tp_doc = "CBOR tag objects",
     .tp_basicsize = sizeof(CBORTagObject),
     .tp_itemsize = 0,
-    .tp_flags = Py_TPFLAGS_DEFAULT,
+    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,
     .tp_new = CBORTag_new,
     .tp_init = (initproc) CBORTag_init,
     .tp_dealloc = (destructor) CBORTag_dealloc,
+    .tp_traverse = (traverseproc) CBORTag_traverse,
+    .tp_clear = (inquiry) CBORTag_clear,
     .tp_members = CBORTag_members,
     .tp_repr = (reprfunc) CBORTag_repr,
     .tp_richcompare = CBORTag_richcompare,
