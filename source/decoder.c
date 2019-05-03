@@ -172,9 +172,8 @@ _CBORDecoder_set_fp(CBORDecoderObject *self, PyObject *value, void *closure)
         return -1;
     }
 
-    // See note in encoder.c / Encoder_set_fp
+    // See notes in encoder.c / _CBOREncoder_set_fp
     tmp = self->read;
-    Py_INCREF(read);
     self->read = read;
     Py_DECREF(tmp);
     return 0;

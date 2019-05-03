@@ -161,7 +161,7 @@ _CBOREncoder_set_fp(CBOREncoderObject *self, PyObject *value, void *closure)
     // method in the middle of a dump. But unless someone actually complains
     // about this I'm loathe to change it...
     tmp = self->write;
-    Py_INCREF(write);
+    // NOTE: no need to INCREF write here as GetAttr returns a new ref
     self->write = write;
     Py_DECREF(tmp);
     return 0;
