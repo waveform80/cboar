@@ -5,7 +5,13 @@ from collections import defaultdict, OrderedDict, namedtuple
 from datetime import datetime, date
 
 import _cboar
-from _cboar import (CBORDecoder, CBORTag, CBORSimpleValue, undefined)
+from _cboar import (
+    CBORDecoder,
+    CBORTag,
+    CBORSimpleValue,
+    undefined,
+    break_marker,
+)
 
 
 default_encoders = [

@@ -11,7 +11,65 @@ from uuid import UUID
 
 import pytest
 
-from cboar import loads, load, CBORTag, CBORSimpleValue, undefined
+from cboar import *
+
+
+def test_fp_attr():
+    with pytest.raises(ValueError):
+        CBORDecoder(None)
+    with BytesIO(b'foobar') as stream:
+        decoder = CBORDecoder(stream)
+        assert decoder.fp is stream
+        with pytest.raises(TypeError):
+            del decoder.fp
+
+
+def test_tag_hook_attr():
+    with BytesIO(b'foobar') as stream:
+        with pytest.raises(ValueError):
+            CBORDecoder(stream, tag_hook='foo')
+        decoder = CBORDecoder(stream)
+        tag_hook = lambda decoder, tag: None
+        decoder.tag_hook = tag_hook
+        assert decoder.tag_hook is tag_hook
+        with pytest.raises(TypeError):
+            del decoder.tag_hook
+
+
+def test_object_hook_attr():
+    with BytesIO(b'foobar') as stream:
+        with pytest.raises(ValueError):
+            CBORDecoder(stream, object_hook='foo')
+        decoder = CBORDecoder(stream)
+        object_hook = lambda decoder, data: None
+        decoder.object_hook = object_hook
+        assert decoder.object_hook is object_hook
+        with pytest.raises(TypeError):
+            del decoder.object_hook
+
+
+def test_str_errors_attr():
+    with BytesIO(b'foobar') as stream:
+        with pytest.raises(ValueError):
+            CBORDecoder(stream, str_errors=False)
+        with pytest.raises(ValueError):
+            CBORDecoder(stream, str_errors='foo')
+        decoder = CBORDecoder(stream)
+        decoder.str_errors = 'replace'
+        assert decoder.str_errors == 'replace'
+        with pytest.raises(TypeError):
+            del decoder.str_errors
+
+
+def test_read():
+    with BytesIO(b'foobar') as stream:
+        decoder = CBORDecoder(stream)
+        assert decoder.read(3) == b'foo'
+        assert decoder.read(3) == b'bar'
+        with pytest.raises(ValueError):
+            decoder.read('foo')
+        with pytest.raises(ValueError):
+            decoder.read(10)
 
 
 @pytest.mark.parametrize('payload, expected', [
