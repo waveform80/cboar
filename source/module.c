@@ -1,5 +1,6 @@
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
+#include <datetime.h>
 #include "module.h"
 #include "tags.h"
 #include "encoder.h"
@@ -438,6 +439,11 @@ PyMODINIT_FUNC
 PyInit__cboar(void)
 {
     PyObject *module;
+
+    PyDateTime_IMPORT;
+    if (!PyDateTimeAPI)
+        return NULL;
+
     if (PyType_Ready(&CBORTagType) < 0)
         return NULL;
     if (PyType_Ready(&CBOREncoderType) < 0)
