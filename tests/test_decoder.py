@@ -72,6 +72,14 @@ def test_read():
             decoder.read(10)
 
 
+def test_decode_from_bytes():
+    with BytesIO(b'foobar') as stream:
+        decoder = CBORDecoder(stream)
+        assert decoder.decode_from_bytes(b'\x01') == 1
+        with pytest.raises(ValueError):
+            decoder.decode_from_bytes('foo')
+
+
 @pytest.mark.parametrize('payload, expected', [
     ('00', 0),
     ('01', 1),
@@ -95,6 +103,11 @@ def test_read():
 def test_integer(payload, expected):
     decoded = loads(unhexlify(payload))
     assert decoded == expected
+
+
+def test_bad_bigint():
+    with pytest.raises(ValueError):
+        loads(unhexlify('c269010000000000000000'))
 
 
 def test_invalid_integer_subtype():
@@ -207,6 +220,7 @@ def test_mixed_array_map(payload, expected):
     ('9f01820203820405ff', [1, [2, 3], [4, 5]]),
     ('83018202039f0405ff', [1, [2, 3], [4, 5]]),
     ('83019f0203ff820405', [1, [2, 3], [4, 5]]),
+    ('d901029f010203ff', {1, 2, 3}),
     ('9f0102030405060708090a0b0c0d0e0f101112131415161718181819ff', list(range(1, 26))),
     ('bf61610161629f0203ffff', {'a': 1, 'b': [2, 3]}),
     ('826161bf61626163ff', ['a', {'b': 'c'}]),
@@ -215,6 +229,13 @@ def test_mixed_array_map(payload, expected):
 def test_streaming(payload, expected):
     decoded = loads(unhexlify(payload))
     assert decoded == expected
+
+
+def test_bad_stream():
+    with pytest.raises(ValueError):
+        loads(unhexlify('5f42010263030405ff'))
+    with pytest.raises(ValueError):
+        loads(unhexlify('7f657374726561446d696e67ff'))
 
 
 @pytest.mark.parametrize('payload, expected', [
@@ -236,13 +257,33 @@ def test_simple_value(payload, expected):
 @pytest.mark.parametrize('payload, expected', [
     ('c074323031332d30332d32315432303a30343a30305a',
      datetime(2013, 3, 21, 20, 4, 0, tzinfo=timezone.utc)),
+    ('c07816323031332d30332d32315432303a30343a30302e335a',
+     datetime(2013, 3, 21, 20, 4, 0, 300000, tzinfo=timezone.utc)),
+    ('c07817323031332d30332d32315432303a30343a30302e33385a',
+     datetime(2013, 3, 21, 20, 4, 0, 380000, tzinfo=timezone.utc)),
+    ('c07818323031332d30332d32315432303a30343a30302e3338305a',
+     datetime(2013, 3, 21, 20, 4, 0, 380000, tzinfo=timezone.utc)),
+    ('c07819323031332d30332d32315432303a30343a30302e333830385a',
+     datetime(2013, 3, 21, 20, 4, 0, 380800, tzinfo=timezone.utc)),
+    ('c0781a323031332d30332d32315432303a30343a30302e33383038345a',
+     datetime(2013, 3, 21, 20, 4, 0, 380840, tzinfo=timezone.utc)),
     ('c0781b323031332d30332d32315432303a30343a30302e3338303834315a',
      datetime(2013, 3, 21, 20, 4, 0, 380841, tzinfo=timezone.utc)),
     ('c07819323031332d30332d32315432323a30343a30302b30323a3030',
      datetime(2013, 3, 21, 22, 4, 0, tzinfo=timezone(timedelta(hours=2)))),
     ('c11a514b67b0', datetime(2013, 3, 21, 20, 4, 0, tzinfo=timezone.utc)),
     ('c11a514b67b0', datetime(2013, 3, 21, 22, 4, 0, tzinfo=timezone(timedelta(hours=2))))
-], ids=['datetime/utc', 'datetime+micro/utc', 'datetime/eet', 'timestamp/utc', 'timestamp/eet'])
+], ids=[
+    'datetime/utc',
+    'datetime+micro1/utc',
+    'datetime+micro2/utc',
+    'datetime+micro3/utc',
+    'datetime+micro4/utc',
+    'datetime+micro5/utc',
+    'datetime+micro6/utc',
+    'datetime/eet',
+    'timestamp/utc',
+    'timestamp/eet'])
 def test_datetime(payload, expected):
     decoded = loads(unhexlify(payload))
     assert decoded == expected
@@ -252,6 +293,12 @@ def test_bad_datetime():
     with pytest.raises(ValueError) as exc:
         loads(unhexlify('c06b303030302d3132332d3031'))
     assert str(exc.value).endswith("invalid datetime string '0000-123-01'")
+    with pytest.raises(ValueError) as exc:
+        loads(unhexlify('c04b303030302d3132332d3031'))
+    assert str(exc.value).endswith("invalid datetime value b'0000-123-01'")
+    with pytest.raises(ValueError) as exc:
+        loads(unhexlify('c16b303030302d3132332d3031'))
+    assert str(exc.value).endswith("invalid timestamp value '0000-123-01'")
 
 
 def test_fraction():
@@ -293,6 +340,9 @@ def test_bad_shared_reference():
     with pytest.raises(ValueError) as exc:
         loads(unhexlify('d81d05'))
     assert str(exc.value).endswith('shared reference 5 not found')
+    with pytest.raises(ValueError) as exc:
+        loads(unhexlify('d81d4101'))
+    assert str(exc.value).endswith("invalid shared reference b'\\x01'")
 
 
 def test_uninitialized_shared_reference():
@@ -391,7 +441,13 @@ def test_set():
     payload = unhexlify('d9010283616361626161')
     value = loads(payload)
     assert type(value) is set
-    assert value == set([u'a', u'b', u'c'])
+    assert value == {'a', 'b', 'c'}
+
+
+def test_bad_set():
+    with pytest.raises(ValueError) as exc:
+        loads(unhexlify('d901024101'))
+    assert str(exc.value).endswith("invalid set array b'\\x01'")
 
 
 @pytest.mark.parametrize('payload, expected', [
