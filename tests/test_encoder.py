@@ -1,5 +1,6 @@
 import re
 import sys
+from io import BytesIO
 from binascii import unhexlify
 from collections import OrderedDict
 from datetime import datetime, timedelta, date, timezone
@@ -11,6 +12,63 @@ from uuid import UUID
 import pytest
 
 from cboar import *
+
+
+def test_fp_attr():
+    with pytest.raises(ValueError):
+        CBOREncoder(None)
+    with BytesIO() as stream:
+        encoder = CBOREncoder(stream)
+        assert encoder.fp is stream
+        with pytest.raises(TypeError):
+            del encoder.fp
+
+
+def test_default_attr():
+    with BytesIO() as stream:
+        encoder = CBOREncoder(stream)
+        assert encoder.default_handler is None
+        with pytest.raises(ValueError):
+            encoder.default_handler = 1
+        with pytest.raises(TypeError):
+            del encoder.default_handler
+
+
+def test_timezone_attr():
+    with BytesIO() as stream:
+        encoder = CBOREncoder(stream)
+        assert encoder.timezone is None
+        with pytest.raises(ValueError):
+            encoder.timezone = 1
+        with pytest.raises(TypeError):
+            del encoder.timezone
+
+
+def test_write():
+    with BytesIO() as stream:
+        encoder = CBOREncoder(stream)
+        encoder.write(b'foo')
+        assert stream.getvalue() == b'foo'
+        with pytest.raises(ValueError):
+            encoder.write(1)
+
+
+def test_encoders_load_type():
+    with BytesIO() as stream:
+        encoder = CBOREncoder(stream)
+        encoder.encoders[(1, 2, 3)] = lambda self, value: None
+        with pytest.raises(ValueError) as exc:
+            encoder.encode(object())
+        assert str(exc.value).endswith(
+            'invalid deferred encoder type (1, 2, 3) (must be a 2-tuple of '
+            "module name and type name, e.g. ('collections', 'defaultdict'))")
+
+
+def test_encode_length():
+    with BytesIO() as stream:
+        encoder = CBOREncoder(stream)
+        encoder.encode_length(0, 1)
+        assert stream.getvalue() == b'\x01'
 
 
 @pytest.mark.parametrize('value, expected', [
@@ -116,9 +174,17 @@ def test_simple_value(value, expected):
      'c07819323031332d30332d32315432323a30343a30302b30323a3030'),
     (datetime(2013, 3, 21, 20, 4, 0), False, 'c074323031332d30332d32315432303a30343a30305a'),
     (datetime(2013, 3, 21, 20, 4, 0, tzinfo=timezone.utc), True, 'c11a514b67b0'),
+    (datetime(2013, 3, 21, 20, 4, 0, 123456, tzinfo=timezone.utc), True, 'c1fb41d452d9ec07e6b4'),
     (datetime(2013, 3, 21, 22, 4, 0, tzinfo=timezone(timedelta(hours=2))), True, 'c11a514b67b0')
-], ids=['datetime/utc', 'datetime+micro/utc', 'datetime/eet', 'naive', 'timestamp/utc',
-        'timestamp/eet'])
+], ids=[
+    'datetime/utc',
+    'datetime+micro/utc',
+    'datetime/eet',
+    'naive',
+    'timestamp/utc',
+    'timestamp+micro/utc',
+    'timestamp/eet'
+])
 def test_datetime(value, as_timestamp, expected):
     expected = unhexlify(expected)
     assert dumps(value, datetime_as_timestamp=as_timestamp, timezone=timezone.utc) == expected
