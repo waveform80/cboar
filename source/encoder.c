@@ -15,9 +15,13 @@
 
 typedef PyObject * (EncodeFunction)(CBOREncoderObject *, PyObject *);
 
+static int encode_semantic(CBOREncoderObject *, const uint64_t, PyObject *);
+static PyObject * encode_shared(CBOREncoderObject *, EncodeFunction *, PyObject *);
+
 static PyObject * CBOREncoder_encode(CBOREncoderObject *, PyObject *);
 static PyObject * CBOREncoder_encode_to_bytes(CBOREncoderObject *, PyObject *);
 static PyObject * CBOREncoder_encode_int(CBOREncoderObject *, PyObject *);
+static PyObject * CBOREncoder_encode_float(CBOREncoderObject *, PyObject *);
 
 static int _CBOREncoder_set_fp(CBOREncoderObject *, PyObject *, void *);
 static int _CBOREncoder_set_default(CBOREncoderObject *, PyObject *, void *);
@@ -270,6 +274,53 @@ CBOREncoder_write(CBOREncoderObject *self, PyObject *data)
 }
 
 
+static int
+encode_length(CBOREncoderObject *self, const uint8_t major_tag,
+              const uint64_t length)
+{
+    LeadByte *lead;
+    char buf[sizeof(LeadByte) + sizeof(uint64_t)];
+
+    lead = (LeadByte*)buf;
+    lead->major = major_tag;
+    if (length < 24) {
+        lead->subtype = length;
+        return fp_write(self, buf, 1);
+    } else if (length <= UCHAR_MAX) {
+        lead->subtype = 24;
+        buf[1] = length;
+        return fp_write(self, buf, sizeof(uint8_t) + 1);
+    } else if (length <= USHRT_MAX) {
+        lead->subtype = 25;
+        *((uint16_t*)(buf + 1)) = htobe16(length);
+        return fp_write(self, buf, sizeof(uint16_t) + 1);
+    } else if (length <= UINT_MAX) {
+        lead->subtype = 26;
+        *((uint32_t*)(buf + 1)) = htobe32(length);
+        return fp_write(self, buf, sizeof(uint32_t) + 1);
+    } else {
+        lead->subtype = 27;
+        *((uint64_t*)(buf + 1)) = htobe64(length);
+        return fp_write(self, buf, sizeof(uint64_t) + 1);
+    }
+}
+
+
+// CBOREncoder.encode_length(self, major_tag, length)
+static PyObject *
+CBOREncoder_encode_length(CBOREncoderObject *self, PyObject *args)
+{
+    uint8_t major_tag;
+    uint64_t length;
+
+    if (!PyArg_ParseTuple(args, "BK", &major_tag, &length))
+        return NULL;
+    if (encode_length(self, major_tag, length) == -1)
+        return NULL;
+    Py_RETURN_NONE;
+}
+
+
 // Given a deferred type tuple (module-name, type-name), import the specified
 // module, get the specified type from within it and return it as a new
 // reference. Returns NULL and sets an appropriate error if the module cannot
@@ -382,163 +433,7 @@ CBOREncoder_find_encoder(CBOREncoderObject *self, PyObject *type)
 }
 
 
-// Regular encoding methods //////////////////////////////////////////////////
-
-static int
-encode_length(CBOREncoderObject *self, const uint8_t major_tag,
-              const uint64_t length)
-{
-    LeadByte *lead;
-    char buf[sizeof(LeadByte) + sizeof(uint64_t)];
-
-    lead = (LeadByte*)buf;
-    lead->major = major_tag;
-    if (length < 24) {
-        lead->subtype = length;
-        return fp_write(self, buf, 1);
-    } else if (length <= UCHAR_MAX) {
-        lead->subtype = 24;
-        buf[1] = length;
-        return fp_write(self, buf, sizeof(uint8_t) + 1);
-    } else if (length <= USHRT_MAX) {
-        lead->subtype = 25;
-        *((uint16_t*)(buf + 1)) = htobe16(length);
-        return fp_write(self, buf, sizeof(uint16_t) + 1);
-    } else if (length <= UINT_MAX) {
-        lead->subtype = 26;
-        *((uint32_t*)(buf + 1)) = htobe32(length);
-        return fp_write(self, buf, sizeof(uint32_t) + 1);
-    } else {
-        lead->subtype = 27;
-        *((uint64_t*)(buf + 1)) = htobe64(length);
-        return fp_write(self, buf, sizeof(uint64_t) + 1);
-    }
-}
-
-
-// CBOREncoder.encode_length(self, major_tag, length)
-static PyObject *
-CBOREncoder_encode_length(CBOREncoderObject *self, PyObject *args)
-{
-    uint8_t major_tag;
-    uint64_t length;
-
-    if (!PyArg_ParseTuple(args, "BK", &major_tag, &length))
-        return NULL;
-    if (encode_length(self, major_tag, length) == -1)
-        return NULL;
-    Py_RETURN_NONE;
-}
-
-
-static int
-encode_semantic(CBOREncoderObject *self, const uint64_t tag, PyObject *value)
-{
-    PyObject *obj;
-
-    if (encode_length(self, 6, tag) == -1)
-        return -1;
-    obj = CBOREncoder_encode(self, value);
-    Py_XDECREF(obj);
-    return obj == NULL ? -1 : 0;
-}
-
-
-// CBOREncoder.encode_semantic(self, tag)
-static PyObject *
-CBOREncoder_encode_semantic(CBOREncoderObject *self, PyObject *value)
-{
-    CBORTagObject *tag;
-
-    if (!CBORTag_CheckExact(value))
-        return NULL;
-    tag = (CBORTagObject *) value;
-    if (encode_semantic(self, tag->tag, tag->value) == -1)
-        return NULL;
-    Py_RETURN_NONE;
-}
-
-
-static PyObject *
-encode_shared(CBOREncoderObject *self, EncodeFunction *encoder,
-              PyObject *value)
-{
-    PyObject *id, *index, *tuple, *ret = NULL;
-
-    id = PyLong_FromVoidPtr(value);
-    if (id) {
-        tuple = PyDict_GetItem(self->shared, id);
-        if (self->value_sharing) {
-            if (tuple) {
-                if (encode_length(self, 6, 29) == 0)
-                    ret = CBOREncoder_encode_int(
-                            self, PyTuple_GET_ITEM(tuple, 1));
-            } else {
-                index = PyLong_FromSsize_t(PyDict_Size(self->shared));
-                if (index) {
-                    tuple = PyTuple_Pack(2, value, index);
-                    if (tuple) {
-                        if (PyDict_SetItem(self->shared, id, tuple) == 0)
-                            if (encode_length(self, 6, 28) == 0)
-                                ret = encoder(self, value);
-                        Py_DECREF(tuple);
-                    }
-                    Py_DECREF(index);
-                }
-            }
-        } else {
-            if (tuple) {
-                PyErr_SetString(PyExc_ValueError,
-                                "cyclic data structure detected but "
-                                "value_sharing is False");
-            } else {
-                tuple = PyTuple_Pack(2, value, Py_None);
-                if (tuple) {
-                    if (PyDict_SetItem(self->shared, id, tuple) == 0) {
-                        ret = encoder(self, value);
-                        PyDict_DelItem(self->shared, id);
-                    }
-                    Py_DECREF(tuple);
-                }
-            }
-        }
-        Py_DECREF(id);
-    }
-    return ret;
-}
-
-
-static PyObject *
-shared_callback(CBOREncoderObject *self, PyObject *value)
-{
-    if (PyCallable_Check(self->shared_handler)) {
-        return PyObject_CallFunctionObjArgs(
-                self->shared_handler, self, value, NULL);
-    } else {
-        PyErr_Format(PyExc_ValueError,
-                "non-callable passed as shared encoding method");
-        return NULL;
-    }
-}
-
-
-// CBOREncoder.encode_shared(self, encode_method, value)
-static PyObject *
-CBOREncoder_encode_shared(CBOREncoderObject *self, PyObject *args)
-{
-    PyObject *method, *value, *tmp, *ret = NULL;
-
-    if (PyArg_ParseTuple(args, "OO", &method, &value)) {
-        Py_INCREF(method);
-        tmp = self->shared_handler;
-        self->shared_handler = method;
-        ret = encode_shared(self, &shared_callback, value);
-        self->shared_handler = tmp;
-        Py_DECREF(method);
-    }
-    return ret;
-}
-
+// Major encoders ////////////////////////////////////////////////////////////
 
 static PyObject *
 encode_negative_int(PyObject *value)
@@ -629,6 +524,7 @@ encode_larger_int(CBOREncoderObject *self, PyObject *value)
 static PyObject *
 CBOREncoder_encode_int(CBOREncoderObject *self, PyObject *value)
 {
+    // major types 0 and 1
     PyObject *ret = NULL;
     long val;
     int overflow;
@@ -663,6 +559,7 @@ CBOREncoder_encode_int(CBOREncoderObject *self, PyObject *value)
 static PyObject *
 CBOREncoder_encode_bytes(CBOREncoderObject *self, PyObject *value)
 {
+    // major type 2
     char *buf;
     Py_ssize_t length;
 
@@ -680,6 +577,7 @@ CBOREncoder_encode_bytes(CBOREncoderObject *self, PyObject *value)
 static PyObject *
 CBOREncoder_encode_bytearray(CBOREncoderObject *self, PyObject *value)
 {
+    // major type 2 (again)
     Py_ssize_t length;
 
     if (!PyByteArray_Check(value)) {
@@ -699,6 +597,7 @@ CBOREncoder_encode_bytearray(CBOREncoderObject *self, PyObject *value)
 static PyObject *
 CBOREncoder_encode_string(CBOREncoderObject *self, PyObject *value)
 {
+    // major type 3
     char *buf;
     Py_ssize_t length;
 
@@ -713,42 +612,285 @@ CBOREncoder_encode_string(CBOREncoderObject *self, PyObject *value)
 }
 
 
-// CBOREncoder.encode_float(self, value)
 static PyObject *
-CBOREncoder_encode_float(CBOREncoderObject *self, PyObject *value)
+encode_array(CBOREncoderObject *self, PyObject *value)
 {
-    union {
-        double f;
-        uint64_t i;
-        char buf[sizeof(double)];
-    } u;
+    PyObject **items, *fast, *ret = NULL;
+    Py_ssize_t length;
 
-    u.f = PyFloat_AS_DOUBLE(value);
-    if (u.f == -1.0 && PyErr_Occurred())
-        return NULL;
-    switch (fpclassify(u.f)) {
-        case FP_NAN:
-            if (fp_write(self, "\xF9\x7E\x00", 3) == -1)
-                return NULL;
-            break;
-        case FP_INFINITE:
-            if (u.f > 0) {
-                if (fp_write(self, "\xF9\x7C\x00", 3) == -1)
-                    return NULL;
-            } else {
-                if (fp_write(self, "\xF9\xFC\x00", 3) == -1)
-                    return NULL;
+    fast = PySequence_Fast(value, "argument must be iterable");
+    if (fast) {
+        length = PySequence_Fast_GET_SIZE(fast);
+        items = PySequence_Fast_ITEMS(fast);
+        if (encode_length(self, 4, length) == 0) {
+            while (length) {
+                ret = CBOREncoder_encode(self, *items);
+                if (ret)
+                    Py_DECREF(ret);
+                else
+                    goto error;
+                items++;
+                length--;
             }
-            break;
-        default:
-            if (fp_write(self, "\xFB", 1) == -1)
+            Py_INCREF(Py_None);
+            ret = Py_None;
+        }
+error:
+        Py_DECREF(fast);
+    }
+    return ret;
+}
+
+
+// CBOREncoder.encode_array(self, value)
+static PyObject *
+CBOREncoder_encode_array(CBOREncoderObject *self, PyObject *value)
+{
+    // major type 4
+    return encode_shared(self, &encode_array, value);
+}
+
+
+static PyObject *
+encode_dict(CBOREncoderObject *self, PyObject *value)
+{
+    PyObject *key, *val, *ret;
+    Py_ssize_t pos = 0;
+
+    if (encode_length(self, 5, PyDict_Size(value)) == 0) {
+        while (PyDict_Next(value, &pos, &key, &val)) {
+            Py_INCREF(key);
+            ret = CBOREncoder_encode(self, key);
+            Py_DECREF(key);
+            if (ret)
+                Py_DECREF(ret);
+            else
                 return NULL;
-            u.i = htobe64(u.i);
-            if (fp_write(self, u.buf, sizeof(double)) == -1)
+            Py_INCREF(val);
+            ret = CBOREncoder_encode(self, val);
+            Py_DECREF(val);
+            if (ret)
+                Py_DECREF(ret);
+            else
                 return NULL;
-            break;
+        }
     }
     Py_RETURN_NONE;
+}
+
+
+static PyObject *
+encode_mapping(CBOREncoderObject *self, PyObject *value)
+{
+    PyObject **items, *list, *fast, *ret = NULL;
+    Py_ssize_t length;
+
+    list = PyMapping_Items(value);
+    if (list) {
+        fast = PySequence_Fast(list, "internal error");
+        if (fast) {
+            length = PySequence_Fast_GET_SIZE(fast);
+            items = PySequence_Fast_ITEMS(fast);
+            if (encode_length(self, 5, length) == 0) {
+                while (length) {
+                    ret = CBOREncoder_encode(self, PyTuple_GET_ITEM(*items, 0));
+                    if (ret)
+                        Py_DECREF(ret);
+                    else
+                        goto error;
+                    ret = CBOREncoder_encode(self, PyTuple_GET_ITEM(*items, 1));
+                    if (ret)
+                        Py_DECREF(ret);
+                    else
+                        goto error;
+                    items++;
+                    length--;
+                }
+                ret = Py_None;
+                Py_INCREF(ret);
+            }
+error:
+            Py_DECREF(fast);
+        }
+        Py_DECREF(list);
+    }
+    return ret;
+}
+
+
+static PyObject *
+CBOREncoder__encode_map(CBOREncoderObject *self, PyObject *value)
+{
+    if (PyDict_Check(value))
+        return encode_dict(self, value);
+    else
+        return encode_mapping(self, value);
+}
+
+
+// CBOREncoder.encode_map(self, value)
+static PyObject *
+CBOREncoder_encode_map(CBOREncoderObject *self, PyObject *value)
+{
+    // major type 5
+    return encode_shared(self, &CBOREncoder__encode_map, value);
+}
+
+
+// Semantic encoders /////////////////////////////////////////////////////////
+
+static int
+encode_semantic(CBOREncoderObject *self, const uint64_t tag, PyObject *value)
+{
+    PyObject *obj;
+
+    if (encode_length(self, 6, tag) == -1)
+        return -1;
+    obj = CBOREncoder_encode(self, value);
+    Py_XDECREF(obj);
+    return obj == NULL ? -1 : 0;
+}
+
+
+// CBOREncoder.encode_semantic(self, tag)
+static PyObject *
+CBOREncoder_encode_semantic(CBOREncoderObject *self, PyObject *value)
+{
+    // major type 6
+    CBORTagObject *tag;
+
+    if (!CBORTag_CheckExact(value))
+        return NULL;
+    tag = (CBORTagObject *) value;
+    if (encode_semantic(self, tag->tag, tag->value) == -1)
+        return NULL;
+    Py_RETURN_NONE;
+}
+
+
+static PyObject *
+encode_datestr(CBOREncoderObject *self, PyObject *datestr)
+{
+    char *buf;
+    Py_ssize_t length, match;
+
+    match = PyUnicode_Tailmatch(
+        datestr, _CBOAR_str_utc_suffix, PyUnicode_GET_LENGTH(datestr) - 6,
+        PyUnicode_GET_LENGTH(datestr), 1);
+    if (match != -1) {
+        buf = PyUnicode_AsUTF8AndSize(datestr, &length);
+        if (buf) {
+            if (fp_write(self, "\xC0", 1) == 0) {
+                if (match) {
+                    if (encode_length(self, 3, length - 5) == 0)
+                        if (fp_write(self, buf, length - 6) == 0)
+                            if (fp_write(self, "Z", 1) == 0)
+                                Py_RETURN_NONE;
+                } else {
+                    if (encode_length(self, 3, length) == 0)
+                        if (fp_write(self, buf, length) == 0)
+                            Py_RETURN_NONE;
+                }
+            }
+        }
+    }
+    return NULL;
+}
+
+
+static PyObject *
+encode_timestamp(CBOREncoderObject *self, PyObject *timestamp)
+{
+    PyObject *ret = NULL;
+
+    if (fp_write(self, "\xC1", 1) == 0) {
+        double d = PyFloat_AS_DOUBLE(timestamp);
+        if (d == trunc(d)) {
+            PyObject *i = PyLong_FromDouble(d);
+            if (i) {
+                ret = CBOREncoder_encode_int(self, i);
+                Py_DECREF(i);
+            }
+        } else {
+            ret = CBOREncoder_encode_float(self, timestamp);
+        }
+    }
+    return ret;
+}
+
+
+// CBOREncoder.encode_datetime(self, value)
+static PyObject *
+CBOREncoder_encode_datetime(CBOREncoderObject *self, PyObject *value)
+{
+    // semantic type 0 or 1
+    PyObject *tmp, *ret = NULL;
+
+    if (PyDateTime_Check(value)) {
+        if (!((PyDateTime_DateTime*)value)->hastzinfo) {
+            if (self->timezone != Py_None) {
+                value = PyDateTimeAPI->DateTime_FromDateAndTime(
+                        PyDateTime_GET_YEAR(value),
+                        PyDateTime_GET_MONTH(value),
+                        PyDateTime_GET_DAY(value),
+                        PyDateTime_DATE_GET_HOUR(value),
+                        PyDateTime_DATE_GET_MINUTE(value),
+                        PyDateTime_DATE_GET_SECOND(value),
+                        PyDateTime_DATE_GET_MICROSECOND(value),
+                        self->timezone,
+                        PyDateTimeAPI->DateTimeType);
+            } else {
+                PyErr_Format(PyExc_ValueError,
+                                "naive datetime %R encountered and no default "
+                                "timezone has been set", value);
+                value = NULL;
+            }
+        } else {
+            // convert value from borrowed to a new reference to simplify our
+            // cleanup later
+            Py_INCREF(value);
+        }
+
+        if (value) {
+            if (self->timestamp_format) {
+                tmp = PyObject_CallMethodObjArgs(
+                        value, _CBOAR_str_timestamp, NULL);
+                if (tmp)
+                    ret = encode_timestamp(self, tmp);
+            } else {
+                tmp = PyObject_CallMethodObjArgs(
+                        value, _CBOAR_str_isoformat, NULL);
+                if (tmp)
+                    ret = encode_datestr(self, tmp);
+            }
+            Py_XDECREF(tmp);
+            Py_DECREF(value);
+        }
+    }
+    return ret;
+}
+
+
+// CBOREncoder.encode_date(self, value)
+static PyObject *
+CBOREncoder_encode_date(CBOREncoderObject *self, PyObject *value)
+{
+    PyObject *datetime, *ret = NULL;
+
+    if (PyDate_Check(value)) {
+        datetime = PyDateTimeAPI->DateTime_FromDateAndTime(
+                PyDateTime_GET_YEAR(value),
+                PyDateTime_GET_MONTH(value),
+                PyDateTime_GET_DAY(value),
+                0, 0, 0, 0, self->timezone,
+                PyDateTimeAPI->DateTimeType);
+        if (datetime) {
+            ret = CBOREncoder_encode_datetime(self, datetime);
+            Py_DECREF(datetime);
+            return ret;
+        }
+    }
+    return NULL;
 }
 
 
@@ -862,6 +1004,7 @@ encode_decimal_digits(CBOREncoderObject *self, PyObject *value)
 static PyObject *
 CBOREncoder_encode_decimal(CBOREncoderObject *self, PyObject *value)
 {
+    // semantic type 4
     switch (decimal_classify(value)) {
         case DC_NAN:
             if (fp_write(self, "\xF9\x7E\x00", 3) == -1)
@@ -895,184 +1038,84 @@ CBOREncoder_encode_decimal(CBOREncoderObject *self, PyObject *value)
 
 
 static PyObject *
-encode_timestamp(CBOREncoderObject *self, PyObject *timestamp)
+encode_shared(CBOREncoderObject *self, EncodeFunction *encoder,
+              PyObject *value)
 {
-    PyObject *ret = NULL;
+    PyObject *id, *index, *tuple, *ret = NULL;
 
-    if (fp_write(self, "\xC1", 1) == 0) {
-        double d = PyFloat_AS_DOUBLE(timestamp);
-        if (d == trunc(d)) {
-            PyObject *i = PyLong_FromDouble(d);
-            if (i) {
-                ret = CBOREncoder_encode_int(self, i);
-                Py_DECREF(i);
+    id = PyLong_FromVoidPtr(value);
+    if (id) {
+        tuple = PyDict_GetItem(self->shared, id);
+        if (self->value_sharing) {
+            if (tuple) {
+                if (encode_length(self, 6, 29) == 0)
+                    ret = CBOREncoder_encode_int(
+                            self, PyTuple_GET_ITEM(tuple, 1));
+            } else {
+                index = PyLong_FromSsize_t(PyDict_Size(self->shared));
+                if (index) {
+                    tuple = PyTuple_Pack(2, value, index);
+                    if (tuple) {
+                        if (PyDict_SetItem(self->shared, id, tuple) == 0)
+                            if (encode_length(self, 6, 28) == 0)
+                                ret = encoder(self, value);
+                        Py_DECREF(tuple);
+                    }
+                    Py_DECREF(index);
+                }
             }
         } else {
-            ret = CBOREncoder_encode_float(self, timestamp);
-        }
-    }
-    return ret;
-}
-
-
-static PyObject *
-encode_datestr(CBOREncoderObject *self, PyObject *datestr)
-{
-    char *buf;
-    Py_ssize_t length, match;
-
-    match = PyUnicode_Tailmatch(
-        datestr, _CBOAR_str_utc_suffix, PyUnicode_GET_LENGTH(datestr) - 6,
-        PyUnicode_GET_LENGTH(datestr), 1);
-    if (match != -1) {
-        buf = PyUnicode_AsUTF8AndSize(datestr, &length);
-        if (buf) {
-            if (fp_write(self, "\xC0", 1) == 0) {
-                if (match) {
-                    if (encode_length(self, 3, length - 5) == 0)
-                        if (fp_write(self, buf, length - 6) == 0)
-                            if (fp_write(self, "Z", 1) == 0)
-                                Py_RETURN_NONE;
-                } else {
-                    if (encode_length(self, 3, length) == 0)
-                        if (fp_write(self, buf, length) == 0)
-                            Py_RETURN_NONE;
+            if (tuple) {
+                PyErr_SetString(PyExc_ValueError,
+                                "cyclic data structure detected but "
+                                "value_sharing is False");
+            } else {
+                tuple = PyTuple_Pack(2, value, Py_None);
+                if (tuple) {
+                    if (PyDict_SetItem(self->shared, id, tuple) == 0) {
+                        ret = encoder(self, value);
+                        PyDict_DelItem(self->shared, id);
+                    }
+                    Py_DECREF(tuple);
                 }
             }
         }
-    }
-    return NULL;
-}
-
-
-// CBOREncoder.encode_datetime(self, value)
-static PyObject *
-CBOREncoder_encode_datetime(CBOREncoderObject *self, PyObject *value)
-{
-    PyObject *tmp, *ret = NULL;
-
-    if (PyDateTime_Check(value)) {
-        if (!((PyDateTime_DateTime*)value)->hastzinfo) {
-            if (self->timezone != Py_None) {
-                value = PyDateTimeAPI->DateTime_FromDateAndTime(
-                        PyDateTime_GET_YEAR(value),
-                        PyDateTime_GET_MONTH(value),
-                        PyDateTime_GET_DAY(value),
-                        PyDateTime_DATE_GET_HOUR(value),
-                        PyDateTime_DATE_GET_MINUTE(value),
-                        PyDateTime_DATE_GET_SECOND(value),
-                        PyDateTime_DATE_GET_MICROSECOND(value),
-                        self->timezone,
-                        PyDateTimeAPI->DateTimeType);
-            } else {
-                PyErr_Format(PyExc_ValueError,
-                                "naive datetime %R encountered and no default "
-                                "timezone has been set", value);
-                value = NULL;
-            }
-        } else {
-            // convert value from borrowed to a new reference to simplify our
-            // cleanup later
-            Py_INCREF(value);
-        }
-
-        if (value) {
-            if (self->timestamp_format) {
-                tmp = PyObject_CallMethodObjArgs(
-                        value, _CBOAR_str_timestamp, NULL);
-                if (tmp)
-                    ret = encode_timestamp(self, tmp);
-            } else {
-                tmp = PyObject_CallMethodObjArgs(
-                        value, _CBOAR_str_isoformat, NULL);
-                if (tmp)
-                    ret = encode_datestr(self, tmp);
-            }
-            Py_XDECREF(tmp);
-            Py_DECREF(value);
-        }
+        Py_DECREF(id);
     }
     return ret;
 }
 
 
-// CBOREncoder.encode_date(self, value)
 static PyObject *
-CBOREncoder_encode_date(CBOREncoderObject *self, PyObject *value)
+shared_callback(CBOREncoderObject *self, PyObject *value)
 {
-    PyObject *datetime, *ret = NULL;
-
-    if (PyDate_Check(value)) {
-        datetime = PyDateTimeAPI->DateTime_FromDateAndTime(
-                PyDateTime_GET_YEAR(value),
-                PyDateTime_GET_MONTH(value),
-                PyDateTime_GET_DAY(value),
-                0, 0, 0, 0, self->timezone,
-                PyDateTimeAPI->DateTimeType);
-        if (datetime) {
-            ret = CBOREncoder_encode_datetime(self, datetime);
-            Py_DECREF(datetime);
-            return ret;
-        }
-    }
-    return NULL;
-}
-
-
-// CBOREncoder.encode_boolean(self, value)
-static PyObject *
-CBOREncoder_encode_boolean(CBOREncoderObject *self, PyObject *value)
-{
-    if (PyObject_IsTrue(value)) {
-        if (fp_write(self, "\xF5", 1) == -1)
-            return NULL;
+    if (PyCallable_Check(self->shared_handler)) {
+        return PyObject_CallFunctionObjArgs(
+                self->shared_handler, self, value, NULL);
     } else {
-        if (fp_write(self, "\xF4", 1) == -1)
-            return NULL;
+        PyErr_Format(PyExc_ValueError,
+                "non-callable passed as shared encoding method");
+        return NULL;
     }
-    Py_RETURN_NONE;
 }
 
 
-// CBOREncoder.encode_none(self, value)
+// CBOREncoder.encode_shared(self, encode_method, value)
 static PyObject *
-CBOREncoder_encode_none(CBOREncoderObject *self, PyObject *value)
+CBOREncoder_encode_shared(CBOREncoderObject *self, PyObject *args)
 {
-    if (fp_write(self, "\xF6", 1) == -1)
-        return NULL;
-    Py_RETURN_NONE;
-}
+    // semantic type 28 or 29
+    PyObject *method, *value, *tmp, *ret = NULL;
 
-
-// CBOREncoder.encode_undefined(self, value)
-static PyObject *
-CBOREncoder_encode_undefined(CBOREncoderObject *self, PyObject *value)
-{
-    if (fp_write(self, "\xF7", 1) == -1)
-        return NULL;
-    Py_RETURN_NONE;
-}
-
-
-// CBOREncoder.encode_simple(self, (value,))
-static PyObject *
-CBOREncoder_encode_simple(CBOREncoderObject *self, PyObject *args)
-{
-    uint8_t value;
-
-    if (!PyArg_ParseTuple(args, "B", &value))
-        return NULL;
-    if (value < 20) {
-        value |= 0xE0;
-        if (fp_write(self, (char *)&value, 1) == -1)
-            return NULL;
-    } else {
-        if (fp_write(self, "\xF8", 1) == -1)
-            return NULL;
-        if (fp_write(self, (char *)&value, 1) == -1)
-            return NULL;
+    if (PyArg_ParseTuple(args, "OO", &method, &value)) {
+        Py_INCREF(method);
+        tmp = self->shared_handler;
+        self->shared_handler = method;
+        ret = encode_shared(self, &shared_callback, value);
+        self->shared_handler = tmp;
+        Py_DECREF(method);
     }
-    Py_RETURN_NONE;
+    return ret;
 }
 
 
@@ -1080,6 +1123,7 @@ CBOREncoder_encode_simple(CBOREncoderObject *self, PyObject *args)
 static PyObject *
 CBOREncoder_encode_rational(CBOREncoderObject *self, PyObject *value)
 {
+    // semantic type 30
     PyObject *tuple, *num, *den, *ret = NULL;
     bool sharing;
 
@@ -1091,8 +1135,10 @@ CBOREncoder_encode_rational(CBOREncoderObject *self, PyObject *value)
             if (tuple) {
                 sharing = self->value_sharing;
                 self->value_sharing = false;
-                if (encode_semantic(self, 30, tuple) == 0)
+                if (encode_semantic(self, 30, tuple) == 0) {
+                    Py_INCREF(Py_None);
                     ret = Py_None;
+                }
                 self->value_sharing = sharing;
                 Py_DECREF(tuple);
             }
@@ -1100,7 +1146,6 @@ CBOREncoder_encode_rational(CBOREncoderObject *self, PyObject *value)
         }
         Py_DECREF(num);
     }
-    Py_XINCREF(ret);
     return ret;
 }
 
@@ -1109,15 +1154,17 @@ CBOREncoder_encode_rational(CBOREncoderObject *self, PyObject *value)
 static PyObject *
 CBOREncoder_encode_regex(CBOREncoderObject *self, PyObject *value)
 {
+    // semantic type 35
     PyObject *pattern, *ret = NULL;
 
     pattern = PyObject_GetAttr(value, _CBOAR_str_pattern);
     if (pattern) {
-        if (encode_semantic(self, 35, pattern) == 0)
+        if (encode_semantic(self, 35, pattern) == 0) {
+            Py_INCREF(Py_None);
             ret = Py_None;
+        }
         Py_DECREF(pattern);
     }
-    Py_XINCREF(ret);
     return ret;
 }
 
@@ -1126,15 +1173,17 @@ CBOREncoder_encode_regex(CBOREncoderObject *self, PyObject *value)
 static PyObject *
 CBOREncoder_encode_mime(CBOREncoderObject *self, PyObject *value)
 {
+    // semantic type 36
     PyObject *buf, *ret = NULL;
 
     buf = PyObject_CallMethodObjArgs(value, _CBOAR_str_as_string, NULL);
     if (buf) {
-        if (encode_semantic(self, 36, buf) == 0)
+        if (encode_semantic(self, 36, buf) == 0) {
+            Py_INCREF(Py_None);
             ret = Py_None;
+        }
         Py_DECREF(buf);
     }
-    Py_XINCREF(ret);
     return ret;
 }
 
@@ -1143,139 +1192,18 @@ CBOREncoder_encode_mime(CBOREncoderObject *self, PyObject *value)
 static PyObject *
 CBOREncoder_encode_uuid(CBOREncoderObject *self, PyObject *value)
 {
+    // semantic type 37
     PyObject *bytes, *ret = NULL;
 
     bytes = PyObject_GetAttr(value, _CBOAR_str_bytes);
     if (bytes) {
-        if (encode_semantic(self, 37, bytes) == 0)
-            ret = Py_None;
-        Py_DECREF(bytes);
-    }
-    Py_XINCREF(ret);
-    return ret;
-}
-
-
-static PyObject *
-encode_array(CBOREncoderObject *self, PyObject *value)
-{
-    PyObject **items, *fast, *ret = NULL;
-    Py_ssize_t length;
-
-    fast = PySequence_Fast(value, "argument must be iterable");
-    if (fast) {
-        length = PySequence_Fast_GET_SIZE(fast);
-        items = PySequence_Fast_ITEMS(fast);
-        if (encode_length(self, 4, length) == 0) {
-            while (length) {
-                ret = CBOREncoder_encode(self, *items);
-                if (ret)
-                    Py_DECREF(ret);
-                else
-                    goto error;
-                items++;
-                length--;
-            }
+        if (encode_semantic(self, 37, bytes) == 0) {
             Py_INCREF(Py_None);
             ret = Py_None;
         }
-error:
-        Py_DECREF(fast);
+        Py_DECREF(bytes);
     }
     return ret;
-}
-
-
-// CBOREncoder.encode_array(self, value)
-static PyObject *
-CBOREncoder_encode_array(CBOREncoderObject *self, PyObject *value)
-{
-    return encode_shared(self, &encode_array, value);
-}
-
-
-static PyObject *
-encode_dict(CBOREncoderObject *self, PyObject *value)
-{
-    PyObject *key, *val, *ret;
-    Py_ssize_t pos = 0;
-
-    if (encode_length(self, 5, PyDict_Size(value)) == 0) {
-        while (PyDict_Next(value, &pos, &key, &val)) {
-            Py_INCREF(key);
-            ret = CBOREncoder_encode(self, key);
-            Py_DECREF(key);
-            if (ret)
-                Py_DECREF(ret);
-            else
-                return NULL;
-            Py_INCREF(val);
-            ret = CBOREncoder_encode(self, val);
-            Py_DECREF(val);
-            if (ret)
-                Py_DECREF(ret);
-            else
-                return NULL;
-        }
-    }
-    Py_RETURN_NONE;
-}
-
-
-static PyObject *
-encode_mapping(CBOREncoderObject *self, PyObject *value)
-{
-    PyObject **items, *list, *fast, *ret = NULL;
-    Py_ssize_t length;
-
-    list = PyMapping_Items(value);
-    if (list) {
-        fast = PySequence_Fast(list, "internal error");
-        if (fast) {
-            length = PySequence_Fast_GET_SIZE(fast);
-            items = PySequence_Fast_ITEMS(fast);
-            if (encode_length(self, 5, length) == 0) {
-                while (length) {
-                    ret = CBOREncoder_encode(self, PyTuple_GET_ITEM(*items, 0));
-                    if (ret)
-                        Py_DECREF(ret);
-                    else
-                        goto error;
-                    ret = CBOREncoder_encode(self, PyTuple_GET_ITEM(*items, 1));
-                    if (ret)
-                        Py_DECREF(ret);
-                    else
-                        goto error;
-                    items++;
-                    length--;
-                }
-                ret = Py_None;
-                Py_INCREF(ret);
-            }
-error:
-            Py_DECREF(fast);
-        }
-        Py_DECREF(list);
-    }
-    return ret;
-}
-
-
-static PyObject *
-CBOREncoder__encode_map(CBOREncoderObject *self, PyObject *value)
-{
-    if (PyDict_Check(value))
-        return encode_dict(self, value);
-    else
-        return encode_mapping(self, value);
-}
-
-
-// CBOREncoder.encode_map(self, value)
-static PyObject *
-CBOREncoder_encode_map(CBOREncoderObject *self, PyObject *value)
-{
-    return encode_shared(self, &CBOREncoder__encode_map, value);
 }
 
 
@@ -1317,7 +1245,111 @@ error:
 static PyObject *
 CBOREncoder_encode_set(CBOREncoderObject *self, PyObject *value)
 {
+    // semantic type 258
     return encode_shared(self, &encode_set, value);
+}
+
+
+// Special encoders //////////////////////////////////////////////////////////
+
+// CBOREncoder.encode_float(self, value)
+static PyObject *
+CBOREncoder_encode_float(CBOREncoderObject *self, PyObject *value)
+{
+    // major type 7
+    union {
+        double f;
+        uint64_t i;
+        char buf[sizeof(double)];
+    } u;
+
+    u.f = PyFloat_AS_DOUBLE(value);
+    if (u.f == -1.0 && PyErr_Occurred())
+        return NULL;
+    switch (fpclassify(u.f)) {
+        case FP_NAN:
+            if (fp_write(self, "\xF9\x7E\x00", 3) == -1)
+                return NULL;
+            break;
+        case FP_INFINITE:
+            if (u.f > 0) {
+                if (fp_write(self, "\xF9\x7C\x00", 3) == -1)
+                    return NULL;
+            } else {
+                if (fp_write(self, "\xF9\xFC\x00", 3) == -1)
+                    return NULL;
+            }
+            break;
+        default:
+            if (fp_write(self, "\xFB", 1) == -1)
+                return NULL;
+            u.i = htobe64(u.i);
+            if (fp_write(self, u.buf, sizeof(double)) == -1)
+                return NULL;
+            break;
+    }
+    Py_RETURN_NONE;
+}
+
+
+// CBOREncoder.encode_boolean(self, value)
+static PyObject *
+CBOREncoder_encode_boolean(CBOREncoderObject *self, PyObject *value)
+{
+    // special type 20 or 21
+    if (PyObject_IsTrue(value)) {
+        if (fp_write(self, "\xF5", 1) == -1)
+            return NULL;
+    } else {
+        if (fp_write(self, "\xF4", 1) == -1)
+            return NULL;
+    }
+    Py_RETURN_NONE;
+}
+
+
+// CBOREncoder.encode_none(self, value)
+static PyObject *
+CBOREncoder_encode_none(CBOREncoderObject *self, PyObject *value)
+{
+    // special type 22
+    if (fp_write(self, "\xF6", 1) == -1)
+        return NULL;
+    Py_RETURN_NONE;
+}
+
+
+// CBOREncoder.encode_undefined(self, value)
+static PyObject *
+CBOREncoder_encode_undefined(CBOREncoderObject *self, PyObject *value)
+{
+    // special type 23
+    if (fp_write(self, "\xF7", 1) == -1)
+        return NULL;
+    Py_RETURN_NONE;
+}
+
+
+// CBOREncoder.encode_simple(self, (value,))
+static PyObject *
+CBOREncoder_encode_simple(CBOREncoderObject *self, PyObject *args)
+{
+    // special types 0..255
+    uint8_t value;
+
+    if (!PyArg_ParseTuple(args, "B", &value))
+        return NULL;
+    if (value < 20) {
+        value |= 0xE0;
+        if (fp_write(self, (char *)&value, 1) == -1)
+            return NULL;
+    } else {
+        if (fp_write(self, "\xF8", 1) == -1)
+            return NULL;
+        if (fp_write(self, (char *)&value, 1) == -1)
+            return NULL;
+    }
+    Py_RETURN_NONE;
 }
 
 
