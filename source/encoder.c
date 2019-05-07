@@ -1249,6 +1249,33 @@ CBOREncoder_encode_set(CBOREncoderObject *self, PyObject *value)
     return encode_shared(self, &encode_set, value);
 }
 
+
+static PyObject *
+encode_ipaddress(CBOREncoderObject *self, PyObject *value)
+{
+    PyObject *bytes, *ret = NULL;
+
+    bytes = PyObject_GetAttr(value, _CBOAR_str_packed);
+    if (bytes) {
+        if (encode_semantic(self, 260, bytes) == 0) {
+            Py_INCREF(Py_None);
+            ret = Py_None;
+        }
+        Py_DECREF(bytes);
+    }
+    return ret;
+}
+
+
+// CBOREncoder.encode_ipaddress(self, value)
+static PyObject *
+CBOREncoder_encode_ipaddress(CBOREncoderObject *self, PyObject *value)
+{
+    // semantic type 260
+    return encode_shared(self, &encode_ipaddress, value);
+}
+
+
 
 // Special encoders //////////////////////////////////////////////////////////
 
@@ -1832,6 +1859,8 @@ static PyMethodDef CBOREncoder_methods[] = {
         "encode the specified UUID to the output"},
     {"encode_set", (PyCFunction) CBOREncoder_encode_set, METH_O,
         "encode the specified set to the output"},
+    {"encode_ipaddress", (PyCFunction) CBOREncoder_encode_ipaddress, METH_O,
+        "encode the specified IPv4 or IPv6 address to the output"},
     {"encode_shared", (PyCFunction) CBOREncoder_encode_shared, METH_VARARGS,
         "encode the specified CBORTag to the output"},
     // Canonical encoding methods

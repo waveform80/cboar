@@ -6,6 +6,7 @@ from collections import OrderedDict
 from datetime import datetime, timedelta, date, timezone
 from decimal import Decimal
 from email.mime.text import MIMEText
+from ipaddress import ip_address, ip_network
 from fractions import Fraction
 from uuid import UUID
 
@@ -236,6 +237,18 @@ def test_mime():
 def test_uuid():
     expected = unhexlify('d825505eaffac8b51e480581277fdcc7842faf')
     assert dumps(UUID(hex='5eaffac8b51e480581277fdcc7842faf')) == expected
+
+
+@pytest.mark.parametrize('value, expected', [
+    (ip_address('192.10.10.1'), 'd9010444c00a0a01'),
+    (ip_address('2001:db8:85a3::8a2e:370:7334'), 'd901045020010db885a3000000008a2e03707334'),
+], ids=[
+    'ipv4',
+    'ipv6',
+])
+def test_ipaddress(value, expected):
+    expected = unhexlify(expected)
+    assert dumps(value) == expected
 
 
 def test_custom_tag():

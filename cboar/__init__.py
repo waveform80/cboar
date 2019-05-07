@@ -45,6 +45,8 @@ default_encoders = [
     (type(re.compile('')),            _cboar.CBOREncoder.encode_regex),
     (('email.message', 'Message'),    _cboar.CBOREncoder.encode_mime),
     (('uuid', 'UUID'),                _cboar.CBOREncoder.encode_uuid),
+    (('ipaddress', 'IPv4Address'),    _cboar.CBOREncoder.encode_ipaddress),
+    (('ipaddress', 'IPv6Address'),    _cboar.CBOREncoder.encode_ipaddress),
     (CBORTag,                         _cboar.CBOREncoder.encode_semantic),
     (CBORSimpleValue,                 _cboar.CBOREncoder.encode_simple),
 ]

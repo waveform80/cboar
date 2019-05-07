@@ -382,6 +382,7 @@ PyObject *_CBOAR_str_join = NULL;
 PyObject *_CBOAR_str_match = NULL;
 PyObject *_CBOAR_str_numerator = NULL;
 PyObject *_CBOAR_str_OrderedDict = NULL;
+PyObject *_CBOAR_str_packed = NULL;
 PyObject *_CBOAR_str_Parser = NULL;
 PyObject *_CBOAR_str_parsestr = NULL;
 PyObject *_CBOAR_str_pattern = NULL;
@@ -513,6 +514,7 @@ PyInit__cboar(void)
     INTERN_STRING(match);
     INTERN_STRING(numerator);
     INTERN_STRING(OrderedDict);
+    INTERN_STRING(packed);
     INTERN_STRING(Parser);
     INTERN_STRING(parsestr);
     INTERN_STRING(pattern);

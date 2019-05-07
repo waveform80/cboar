@@ -51,6 +51,7 @@ extern PyObject *_CBOAR_str_join;
 extern PyObject *_CBOAR_str_match;
 extern PyObject *_CBOAR_str_numerator;
 extern PyObject *_CBOAR_str_OrderedDict;
+extern PyObject *_CBOAR_str_packed;
 extern PyObject *_CBOAR_str_Parser;
 extern PyObject *_CBOAR_str_parsestr;
 extern PyObject *_CBOAR_str_pattern;
