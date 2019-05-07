@@ -35,6 +35,7 @@ static PyObject * CBORDecoder_decode_simplevalue(CBORDecoderObject *);
 static PyObject * CBORDecoder_decode_float16(CBORDecoderObject *);
 static PyObject * CBORDecoder_decode_float32(CBORDecoderObject *);
 static PyObject * CBORDecoder_decode_float64(CBORDecoderObject *);
+static PyObject * CBORDecoder_decode_ipaddress(CBORDecoderObject *);
 
 static PyObject * CBORDecoder_decode_shareable(CBORDecoderObject *);
 static PyObject * CBORDecoder_decode_shared(CBORDecoderObject *);
@@ -812,6 +813,7 @@ decode_semantic(CBORDecoderObject *self, uint8_t subtype)
             case 36:  ret = CBORDecoder_decode_mime(self);            break;
             case 37:  ret = CBORDecoder_decode_uuid(self);            break;
             case 258: ret = CBORDecoder_decode_set(self);             break;
+            case 260: ret = CBORDecoder_decode_ipaddress(self);       break;
             default:
                 tag = CBORTag_New(tagnum);
                 if (tag) {
@@ -1159,8 +1161,7 @@ CBORDecoder_decode_regexp(CBORDecoderObject *self)
 
     if (!_CBOAR_re_compile && _CBOAR_init_re_compile() == -1)
         return NULL;
-    // NOTE: see semantic type 4
-    pattern = CBORDecoder_decode_immutable_unshared(self);
+    pattern = CBORDecoder_decode_unshared(self);
     if (pattern) {
         ret = PyObject_CallFunctionObjArgs(_CBOAR_re_compile, pattern, NULL);
         Py_DECREF(pattern);
@@ -1179,8 +1180,7 @@ CBORDecoder_decode_mime(CBORDecoderObject *self)
 
     if (!_CBOAR_Parser && _CBOAR_init_Parser() == -1)
         return NULL;
-    // NOTE: see semantic type 4
-    value = CBORDecoder_decode_immutable_unshared(self);
+    value = CBORDecoder_decode_unshared(self);
     if (value) {
         parser = PyObject_CallFunctionObjArgs(_CBOAR_Parser, NULL);
         if (parser) {
@@ -1204,8 +1204,7 @@ CBORDecoder_decode_uuid(CBORDecoderObject *self)
 
     if (!_CBOAR_UUID && _CBOAR_init_UUID() == -1)
         return NULL;
-    // NOTE: see semantic type 4
-    bytes = CBORDecoder_decode_immutable_unshared(self);
+    bytes = CBORDecoder_decode_unshared(self);
     if (bytes) {
         ret = PyObject_CallFunctionObjArgs(_CBOAR_UUID, Py_None, bytes, NULL);
         Py_DECREF(bytes);
@@ -1237,6 +1236,47 @@ CBORDecoder_decode_set(CBORDecoderObject *self)
     // unlike lists/dicts a set cannot contain a reference to itself (a set
     // is unhashable). Nor can a frozenset contain a reference to itself
     // because it can't refer to itself during its own construction.
+    set_shareable(self, ret);
+    return ret;
+}
+
+
+// CBORDecoder.decode_ipaddress(self)
+static PyObject *
+CBORDecoder_decode_ipaddress(CBORDecoderObject *self)
+{
+    // semantic type 260
+    PyObject *tag, *bytes, *ret = NULL;
+
+    if (!_CBOAR_ip_address && _CBOAR_init_ip_address() == -1)
+        return NULL;
+    bytes = CBORDecoder_decode_unshared(self);
+    if (bytes) {
+        if (PyBytes_CheckExact(bytes)) {
+            if (PyBytes_GET_SIZE(bytes) == 4 || PyBytes_GET_SIZE(bytes) == 16)
+                ret = PyObject_CallFunctionObjArgs(_CBOAR_ip_address, bytes, NULL);
+            else if (PyBytes_GET_SIZE(bytes) == 6) {
+                // MAC address
+                tag = CBORTag_New(260);
+                if (tag) {
+                    if (CBORTag_SetValue(tag, bytes) == 0) {
+                        if (self->tag_hook == Py_None) {
+                            Py_INCREF(tag);
+                            ret = tag;
+                        } else {
+                            ret = PyObject_CallFunctionObjArgs(
+                                    self->tag_hook, self, tag, NULL);
+                        }
+                    }
+                    Py_DECREF(tag);
+                }
+            } else
+                PyErr_Format(PyExc_ValueError, "invalid ipaddress length %d",
+                        PyBytes_GET_SIZE(bytes));
+        } else
+            PyErr_Format(PyExc_ValueError, "invalid ipaddress value %R", bytes);
+        Py_DECREF(bytes);
+    }
     set_shareable(self, ret);
     return ret;
 }
@@ -1541,6 +1581,8 @@ static PyMethodDef CBORDecoder_methods[] = {
         "decode a shared reference from the input"},
     {"decode_set", (PyCFunction) CBORDecoder_decode_set, METH_NOARGS,
         "decode a set or frozenset from the input"},
+    {"decode_ipaddress", (PyCFunction) CBORDecoder_decode_ipaddress, METH_NOARGS,
+        "decode an IPv4Address or IPv6Address from the input"},
     {"decode_simplevalue",
         (PyCFunction) CBORDecoder_decode_simplevalue, METH_NOARGS,
         "decode a CBORSimpleValue from the input"},

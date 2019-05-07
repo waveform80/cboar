@@ -357,6 +357,26 @@ error:
     return -1;
 }
 
+
+int
+_CBOAR_init_ip_address(void)
+{
+    PyObject *ipaddress;
+
+    // from ipaddress import ip_address
+    ipaddress = PyImport_ImportModule("ipaddress");
+    if (!ipaddress)
+        goto error;
+    _CBOAR_ip_address = PyObject_GetAttr(ipaddress, _CBOAR_str_ip_address);
+    Py_DECREF(ipaddress);
+    if (!_CBOAR_ip_address)
+        goto error;
+    return 0;
+error:
+    PyErr_SetString(PyExc_ImportError, "unable to import ip_address from ipaddress");
+    return -1;
+}
+
 
 // Module definition /////////////////////////////////////////////////////////
 
@@ -375,6 +395,7 @@ PyObject *_CBOAR_str_Fraction = NULL;
 PyObject *_CBOAR_str_fromtimestamp = NULL;
 PyObject *_CBOAR_str_getvalue = NULL;
 PyObject *_CBOAR_str_groups = NULL;
+PyObject *_CBOAR_str_ip_address = NULL;
 PyObject *_CBOAR_str_is_infinite = NULL;
 PyObject *_CBOAR_str_is_nan = NULL;
 PyObject *_CBOAR_str_isoformat = NULL;
@@ -404,6 +425,7 @@ PyObject *_CBOAR_UUID = NULL;
 PyObject *_CBOAR_Parser = NULL;
 PyObject *_CBOAR_re_compile = NULL;
 PyObject *_CBOAR_datestr_re = NULL;
+PyObject *_CBOAR_ip_address = NULL;
 
 static void
 cboar_free(PyObject *m)
@@ -418,6 +440,7 @@ cboar_free(PyObject *m)
     Py_CLEAR(_CBOAR_Parser);
     Py_CLEAR(_CBOAR_re_compile);
     Py_CLEAR(_CBOAR_datestr_re);
+    Py_CLEAR(_CBOAR_ip_address);
 }
 
 PyDoc_STRVAR(_cboar__doc__,
@@ -507,6 +530,7 @@ PyInit__cboar(void)
     INTERN_STRING(fromtimestamp);
     INTERN_STRING(getvalue);
     INTERN_STRING(groups);
+    INTERN_STRING(ip_address);
     INTERN_STRING(is_infinite);
     INTERN_STRING(is_nan);
     INTERN_STRING(isoformat);

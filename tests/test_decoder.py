@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from email.message import Message
 from fractions import Fraction
+from ipaddress import ip_address
 from io import BytesIO
 from uuid import UUID
 
@@ -334,6 +335,29 @@ def test_mime():
 def test_uuid():
     decoded = loads(unhexlify('d825505eaffac8b51e480581277fdcc7842faf'))
     assert decoded == UUID(hex='5eaffac8b51e480581277fdcc7842faf')
+
+
+@pytest.mark.parametrize('payload, expected', [
+    ('d9010444c00a0a01', ip_address('192.10.10.1')),
+    ('d901045020010db885a3000000008a2e03707334', ip_address('2001:db8:85a3::8a2e:370:7334')),
+    ('d9010446010203040506', CBORTag(260, b'\x01\x02\x03\x04\x05\x06')),
+], ids=[
+    'ipv4',
+    'ipv6',
+    'mac',
+])
+def test_ipaddress(payload, expected):
+    payload = unhexlify(payload)
+    assert loads(payload) == expected
+
+
+def test_bad_ipaddress():
+    with pytest.raises(ValueError) as exc:
+        loads(unhexlify('d9010443c00a0a'))
+    assert str(exc.value).endswith('invalid ipaddress length 3')
+    with pytest.raises(ValueError) as exc:
+        loads(unhexlify('d9010401'))
+    assert str(exc.value).endswith('invalid ipaddress value 1')
 
 
 def test_bad_shared_reference():
