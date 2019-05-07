@@ -15,3 +15,7 @@ typedef struct {
 } CBORDecoderObject;
 
 PyTypeObject CBORDecoderType;
+
+PyObject * CBORDecoder_new(PyTypeObject *, PyObject *, PyObject *);
+int CBORDecoder_init(CBORDecoderObject *, PyObject *, PyObject *);
+PyObject * CBORDecoder_decode(CBORDecoderObject *);

@@ -40,7 +40,6 @@ static PyObject * CBORDecoder_decode_ipaddress(CBORDecoderObject *);
 static PyObject * CBORDecoder_decode_shareable(CBORDecoderObject *);
 static PyObject * CBORDecoder_decode_shared(CBORDecoderObject *);
 static PyObject * CBORDecoder_decode_set(CBORDecoderObject *);
-static PyObject * CBORDecoder_decode(CBORDecoderObject *);
 static PyObject * CBORDecoder_decode_immutable(CBORDecoderObject *);
 static PyObject * CBORDecoder_decode_unshared(CBORDecoderObject *);
 static PyObject * CBORDecoder_decode_immutable_unshared(CBORDecoderObject *);
@@ -85,7 +84,7 @@ CBORDecoder_dealloc(CBORDecoderObject *self)
 
 
 // CBORDecoder.__new__(cls, *args, **kwargs)
-static PyObject *
+PyObject *
 CBORDecoder_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
 {
     CBORDecoderObject *self;
@@ -118,7 +117,7 @@ error:
 
 
 // CBORDecoder.__init__(self, fp=None, tag_hook=None, object_hook=None)
-static int
+int
 CBORDecoder_init(CBORDecoderObject *self, PyObject *args, PyObject *kwargs)
 {
     static char *keywords[] = {
@@ -1402,7 +1401,7 @@ CBORDecoder_decode_float64(CBORDecoderObject *self)
 
 
 // CBORDecoder.decode(self) -> obj
-static PyObject *
+PyObject *
 CBORDecoder_decode(CBORDecoderObject *self)
 {
     PyObject *ret = NULL;

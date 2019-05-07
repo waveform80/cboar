@@ -180,6 +180,121 @@ CBORSimpleValue_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
 }
 
 
+// dump/load functions ///////////////////////////////////////////////////////
+
+static PyObject *
+CBOAR_dump(PyObject *module, PyObject *args, PyObject *kwargs)
+{
+    PyObject *obj, *ret = NULL;
+    CBOREncoderObject *self;
+    bool decref_args = false;
+
+    if (PyTuple_GET_SIZE(args) == 0) {
+        obj = PyDict_GetItem(kwargs, _CBOAR_str_obj);
+        if (!obj) {
+            PyErr_SetString(PyExc_TypeError,
+                    "dump missing 1 required argument: 'obj'");
+            return NULL;
+        }
+        Py_INCREF(obj);
+        if (PyDict_DelItem(kwargs, _CBOAR_str_obj) == -1) {
+            Py_DECREF(obj);
+            return NULL;
+        }
+    } else {
+        obj = PyTuple_GET_ITEM(args, 0);
+        args = PyTuple_GetSlice(args, 1, PyTuple_GET_SIZE(args));
+        if (!args)
+            return NULL;
+        Py_INCREF(obj);
+        decref_args = true;
+    }
+
+    self = (CBOREncoderObject *)CBOREncoder_new(&CBOREncoderType, NULL, NULL);
+    if (self) {
+        if (CBOREncoder_init(self, args, kwargs) == 0) {
+            ret = CBOREncoder_encode(self, obj);
+        }
+        Py_DECREF(self);
+    }
+    Py_DECREF(obj);
+    if (decref_args)
+        Py_DECREF(args);
+    return ret;
+}
+
+
+static PyObject *
+CBOAR_load(PyObject *module, PyObject *args, PyObject *kwargs)
+{
+    PyObject *ret = NULL;
+    CBORDecoderObject *self;
+
+    self = (CBORDecoderObject *)CBORDecoder_new(&CBORDecoderType, NULL, NULL);
+    if (self) {
+        if (CBORDecoder_init(self, args, kwargs) == 0) {
+            ret = CBORDecoder_decode(self);
+        }
+        Py_DECREF(self);
+    }
+    return ret;
+}
+
+
+static PyObject *
+CBOAR_loads(PyObject *module, PyObject *args, PyObject *kwargs)
+{
+    PyObject *new_args, *buf, *stream, *ret = NULL;
+    Py_ssize_t i;
+
+    if (!_CBOAR_BytesIO && _CBOAR_init_BytesIO() == -1)
+        return NULL;
+
+    if (PyTuple_GET_SIZE(args) == 0) {
+        buf = PyDict_GetItem(kwargs, _CBOAR_str_buf);
+        if (!buf) {
+            PyErr_SetString(PyExc_TypeError,
+                    "dump missing 1 required argument: 'buf'");
+            return NULL;
+        }
+        Py_INCREF(buf);
+        if (PyDict_DelItem(kwargs, _CBOAR_str_buf) == -1)
+            goto error;
+        new_args = PyTuple_New(PyTuple_GET_SIZE(args) + 1);
+        if (!new_args)
+            goto error;
+        for (i = 0; i < PyTuple_GET_SIZE(args); ++i) {
+            // inc. ref because PyTuple_SET_ITEM steals a ref
+            Py_INCREF(PyTuple_GET_ITEM(args, i));
+            PyTuple_SET_ITEM(new_args, i + 1, PyTuple_GET_ITEM(args, i));
+        }
+    } else {
+        buf = PyTuple_GET_ITEM(args, 0);
+        Py_INCREF(buf);
+        new_args = PyTuple_New(PyTuple_GET_SIZE(args));
+        if (!new_args)
+            goto error;
+        for (i = 1; i < PyTuple_GET_SIZE(args); ++i) {
+            // inc. ref because PyTuple_SET_ITEM steals a ref
+            Py_INCREF(PyTuple_GET_ITEM(args, i));
+            PyTuple_SET_ITEM(new_args, i, PyTuple_GET_ITEM(args, i));
+        }
+    }
+
+    stream = PyObject_CallFunctionObjArgs(_CBOAR_BytesIO, buf, NULL);
+    if (stream) {
+        PyTuple_SET_ITEM(new_args, 0, stream);
+        ret = CBOAR_load(module, new_args, kwargs);
+        // no need to dec. ref stream here because SET_ITEM above stole the ref
+    }
+    Py_DECREF(new_args);
+    return ret;
+error:
+    Py_DECREF(buf);
+    return NULL;
+}
+
+
 // Cache-init functions //////////////////////////////////////////////////////
 
 int
@@ -385,6 +500,7 @@ PyObject *_CBOAR_empty_str = NULL;
 PyObject *_CBOAR_str_as_string = NULL;
 PyObject *_CBOAR_str_as_tuple = NULL;
 PyObject *_CBOAR_str_bit_length = NULL;
+PyObject *_CBOAR_str_buf = NULL;
 PyObject *_CBOAR_str_bytes = NULL;
 PyObject *_CBOAR_str_BytesIO = NULL;
 PyObject *_CBOAR_str_compile = NULL;
@@ -402,6 +518,7 @@ PyObject *_CBOAR_str_isoformat = NULL;
 PyObject *_CBOAR_str_join = NULL;
 PyObject *_CBOAR_str_match = NULL;
 PyObject *_CBOAR_str_numerator = NULL;
+PyObject *_CBOAR_str_obj = NULL;
 PyObject *_CBOAR_str_OrderedDict = NULL;
 PyObject *_CBOAR_str_packed = NULL;
 PyObject *_CBOAR_str_Parser = NULL;
@@ -443,6 +560,16 @@ cboar_free(PyObject *m)
     Py_CLEAR(_CBOAR_ip_address);
 }
 
+static PyMethodDef _cboarmethods[] = {
+    {"dump", (PyCFunction) CBOAR_dump, METH_VARARGS | METH_KEYWORDS,
+        "encode a value to the stream"},
+    {"load", (PyCFunction) CBOAR_load, METH_VARARGS | METH_KEYWORDS,
+        "decode a value from the stream"},
+    {"loads", (PyCFunction) CBOAR_loads, METH_VARARGS | METH_KEYWORDS,
+        "decode a value from a byte-string"},
+    {NULL}
+};
+
 PyDoc_STRVAR(_cboar__doc__,
 "The _cboar module is the C-extension backing the cboar Python module. It\n"
 "defines the base CBOREncoder, CBORDecoder, CBORTag, and undefined types\n"
@@ -457,6 +584,7 @@ static struct PyModuleDef _cboarmodule = {
     .m_doc = _cboar__doc__,
     .m_size = -1,
     .m_free = (freefunc) cboar_free,
+    .m_methods = _cboarmethods,
 };
 
 PyMODINIT_FUNC
@@ -521,6 +649,7 @@ PyInit__cboar(void)
     INTERN_STRING(as_string);
     INTERN_STRING(as_tuple);
     INTERN_STRING(bit_length);
+    INTERN_STRING(buf);
     INTERN_STRING(bytes);
     INTERN_STRING(BytesIO);
     INTERN_STRING(compile);
@@ -537,6 +666,7 @@ PyInit__cboar(void)
     INTERN_STRING(join);
     INTERN_STRING(match);
     INTERN_STRING(numerator);
+    INTERN_STRING(obj);
     INTERN_STRING(OrderedDict);
     INTERN_STRING(packed);
     INTERN_STRING(Parser);

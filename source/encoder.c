@@ -18,7 +18,6 @@ typedef PyObject * (EncodeFunction)(CBOREncoderObject *, PyObject *);
 static int encode_semantic(CBOREncoderObject *, const uint64_t, PyObject *);
 static PyObject * encode_shared(CBOREncoderObject *, EncodeFunction *, PyObject *);
 
-static PyObject * CBOREncoder_encode(CBOREncoderObject *, PyObject *);
 static PyObject * CBOREncoder_encode_to_bytes(CBOREncoderObject *, PyObject *);
 static PyObject * CBOREncoder_encode_int(CBOREncoderObject *, PyObject *);
 static PyObject * CBOREncoder_encode_float(CBOREncoderObject *, PyObject *);
@@ -65,7 +64,7 @@ CBOREncoder_dealloc(CBOREncoderObject *self)
 
 
 // CBOREncoder.__new__(cls, *args, **kwargs)
-static PyObject *
+PyObject *
 CBOREncoder_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
 {
     CBOREncoderObject *self;
@@ -105,12 +104,12 @@ error:
 
 // CBOREncoder.__init__(self, fp=None, default_handler=None,
 //                      timestamp_format=0, value_sharing=False)
-static int
+int
 CBOREncoder_init(CBOREncoderObject *self, PyObject *args, PyObject *kwargs)
 {
     static char *keywords[] = {
         "fp", "datetime_as_timestamp", "timezone", "value_sharing", "default",
-        "enc_style", NULL
+        "canonical", NULL
     };
     PyObject *fp = NULL, *default_handler = NULL, *timezone = NULL;
 
@@ -1702,6 +1701,8 @@ encode(CBOREncoderObject *self, PyObject *value)
                 return CBOREncoder_encode_boolean(self, value);
             else if (value == Py_None)
                 return CBOREncoder_encode_none(self, value);
+            else if (value == undefined)
+                return CBOREncoder_encode_undefined(self, value);
             else if (PyTuple_CheckExact(value))
                 return CBOREncoder_encode_array(self, value);
             else if (PyList_CheckExact(value))
@@ -1736,7 +1737,7 @@ encode(CBOREncoderObject *self, PyObject *value)
 
 
 // CBOREncoder.encode(self, value)
-static PyObject *
+PyObject *
 CBOREncoder_encode(CBOREncoderObject *self, PyObject *value)
 {
     PyObject *ret;

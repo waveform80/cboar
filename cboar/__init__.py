@@ -11,6 +11,8 @@ from _cboar import (
     CBORSimpleValue,
     undefined,
     break_marker,
+    load,
+    loads,
 )
 
 
@@ -89,12 +91,3 @@ def dumps(obj, **kwargs):
 
 def dump(obj, fp, **kwargs):
     return CBOREncoder(fp, **kwargs).encode(obj)
-
-
-def loads(buf, **kwargs):
-    with io.BytesIO(buf) as fp:
-        return load(fp, **kwargs)
-
-
-def load(fp, **kwargs):
-    return CBORDecoder(fp, **kwargs).decode()

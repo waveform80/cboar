@@ -22,3 +22,7 @@ typedef struct {
 } CBOREncoderObject;
 
 PyTypeObject CBOREncoderType;
+
+PyObject * CBOREncoder_new(PyTypeObject *, PyObject *, PyObject *);
+int CBOREncoder_init(CBOREncoderObject *, PyObject *, PyObject *);
+PyObject * CBOREncoder_encode(CBOREncoderObject *, PyObject *);
