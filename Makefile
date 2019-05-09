@@ -84,6 +84,9 @@ all:
 	@echo "make install - Install on local system"
 	@echo "make develop - Install symlinks for development"
 	@echo "make test - Run tests"
+	@echo "make covtest - Run coverage tests"
+	@echo "make speedtest - Run speed tests"
+	@echo "make leaktest - Run ref-leak tests"
 	@echo "make doc - Generate HTML and PDF documentation"
 	@echo "make source - Create source package"
 	@echo "make egg - Generate a PyPI egg package"
@@ -120,14 +123,31 @@ develop: tags
 	@# These have to be done separately to avoid a cockup...
 	$(PIP) install -U setuptools
 	$(PIP) install -U pip
-	CFLAGS="-coverage" $(PIP) install -v -e .[doc,test]
+	$(PIP) install -v -e .[doc,test]
 
 test:
-	-find build/temp.*/source -name "*.gcda" -delete
-	mkdir -p coverage/
 	$(PYTEST) -v tests
+
+covtest:
+	@# rebuild to with coverage hooks
+	touch source/*.c
+	CFLAGS="-coverage" $(PIP) install -v -e .[test]
+	-find build/temp.*/source -name "*.gcda" -delete
+	$(PYTEST) -v tests
+	mkdir -p coverage/
 	$(LCOV) --capture -d build/temp.*/source/ --output-file coverage/coverage.info
 	$(LGEN) coverage/coverage.info --out coverage/
+	$(PYTHON) scripts/coverage_server.py
+
+speedtest:
+	$(PIP) install cbor cbor2
+	@# rebuild to ensure no coverage hooks
+	touch source/*.c
+	$(PIP) install -v -e .[test]
+	$(PYTHON) scripts/speed_test.py
+
+leaktest:
+	@echo TODO
 
 clean:
 	dh_clean
