@@ -38,6 +38,7 @@ extern PyObject *_CBOAR_str_buf;
 extern PyObject *_CBOAR_str_bytes;
 extern PyObject *_CBOAR_str_BytesIO;
 extern PyObject *_CBOAR_str_compile;
+extern PyObject *_CBOAR_str_copy;
 extern PyObject *_CBOAR_str_datestr_re;
 extern PyObject *_CBOAR_str_Decimal;
 extern PyObject *_CBOAR_str_denominator;
@@ -61,6 +62,7 @@ extern PyObject *_CBOAR_str_pattern;
 extern PyObject *_CBOAR_str_read;
 extern PyObject *_CBOAR_str_timestamp;
 extern PyObject *_CBOAR_str_timezone;
+extern PyObject *_CBOAR_str_update;
 extern PyObject *_CBOAR_str_utc;
 extern PyObject *_CBOAR_str_utc_suffix;
 extern PyObject *_CBOAR_str_UUID;
@@ -89,3 +91,7 @@ int _CBOAR_init_UUID(void);
 int _CBOAR_init_Parser(void);
 int _CBOAR_init_re_compile(void); // also handles datestr_re
 int _CBOAR_init_ip_address(void);
+
+// Encoder registries
+extern PyObject *_CBOAR_default_encoders;
+extern PyObject *_CBOAR_canonical_encoders;

@@ -300,23 +300,27 @@ _CBORDecoder_set_str_errors(CBORDecoderObject *self, PyObject *value,
 static int
 fp_read(CBORDecoderObject *self, char *buf, const uint64_t size)
 {
-    PyObject *obj;
+    PyObject *obj, *size_obj;
     char *data;
     int ret = -1;
 
-    obj = PyObject_CallFunction(self->read, "k", size);
-    if (obj) {
-        assert(PyBytes_CheckExact(obj));
-        if (PyBytes_GET_SIZE(obj) == size) {
-            data = PyBytes_AS_STRING(obj);
-            memcpy(buf, data, size);
-            ret = 0;
-        } else {
-            PyErr_Format(PyExc_ValueError,
-                    "premature end of stream (expected to read %d bytes, "
-                    "got %d instead)", size, PyBytes_GET_SIZE(obj));
+    size_obj = PyLong_FromUnsignedLongLong(size);
+    if (size_obj) {
+        obj = PyObject_CallFunctionObjArgs(self->read, size_obj, NULL);
+        if (obj) {
+            assert(PyBytes_CheckExact(obj));
+            if (PyBytes_GET_SIZE(obj) == size) {
+                data = PyBytes_AS_STRING(obj);
+                memcpy(buf, data, size);
+                ret = 0;
+            } else {
+                PyErr_Format(PyExc_ValueError,
+                        "premature end of stream (expected to read %d bytes, "
+                        "got %d instead)", size, PyBytes_GET_SIZE(obj));
+            }
+            Py_DECREF(obj);
         }
-        Py_DECREF(obj);
+        Py_DECREF(size_obj);
     }
     return ret;
 }

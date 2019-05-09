@@ -73,17 +73,16 @@ CBOREncoder_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
     if (!PyDateTimeAPI)
         return NULL;
 
-    if (!_CBOAR_OrderedDict && _CBOAR_init_OrderedDict() == -1)
-        return NULL;
+    // Should've been done by module init
+    //if (!_CBOAR_OrderedDict && _CBOAR_init_OrderedDict() == -1)
+    //    return NULL;
 
     self = (CBOREncoderObject *) type->tp_alloc(type, 0);
     if (self) {
-        self->encoders = PyObject_CallObject(_CBOAR_OrderedDict, NULL);
-        if (!self->encoders)
-            goto error;
-        self->shared = PyDict_New();
-        if (!self->shared)
-            goto error;
+        Py_INCREF(Py_None);
+        self->encoders = Py_None;
+        Py_INCREF(Py_None);
+        self->shared = Py_None;
         Py_INCREF(Py_None);
         self->write = Py_None;
         Py_INCREF(Py_None);
@@ -96,9 +95,6 @@ CBOREncoder_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
         self->shared_handler = NULL;
     }
     return (PyObject *) self;
-error:
-    Py_DECREF(self);
-    return NULL;
 }
 
 
@@ -111,7 +107,7 @@ CBOREncoder_init(CBOREncoderObject *self, PyObject *args, PyObject *kwargs)
         "fp", "datetime_as_timestamp", "timezone", "value_sharing", "default",
         "canonical", NULL
     };
-    PyObject *fp = NULL, *default_handler = NULL, *timezone = NULL;
+    PyObject *tmp, *fp = NULL, *default_handler = NULL, *timezone = NULL;
 
     if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|pOpOB", keywords,
                 &fp, &self->timestamp_format, &timezone, &self->value_sharing,
@@ -124,6 +120,24 @@ CBOREncoder_init(CBOREncoderObject *self, PyObject *args, PyObject *kwargs)
         return -1;
     if (timezone && _CBOREncoder_set_timezone(self, timezone, NULL) == -1)
         return -1;
+
+    self->shared = PyDict_New();
+    if (!self->shared)
+        return -1;
+
+    tmp = self->encoders;
+    self->encoders = PyObject_CallMethodObjArgs(
+        _CBOAR_default_encoders, _CBOAR_str_copy, NULL);
+    if (!self->encoders) {
+        Py_DECREF(tmp);
+        return -1;
+    }
+    Py_INCREF(self->encoders);
+    Py_DECREF(tmp);
+    if (self->enc_style)
+        if (!PyObject_CallMethodObjArgs(self->encoders,
+                    _CBOAR_str_update, _CBOAR_canonical_encoders, NULL))
+            return -1;
 
     return 0;
 }

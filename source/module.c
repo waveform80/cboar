@@ -225,6 +225,58 @@ CBOAR_dump(PyObject *module, PyObject *args, PyObject *kwargs)
 
 
 static PyObject *
+CBOAR_dumps(PyObject *module, PyObject *args, PyObject *kwargs)
+{
+    PyObject *new_args, *fp, *obj, *ret = NULL;
+    Py_ssize_t i;
+
+    if (!_CBOAR_BytesIO && _CBOAR_init_BytesIO() == -1)
+        return NULL;
+
+    fp = PyObject_CallFunctionObjArgs(_CBOAR_BytesIO, NULL);
+    if (fp) {
+        if (PyTuple_GET_SIZE(args) == 0) {
+            obj = PyDict_GetItem(kwargs, _CBOAR_str_obj);
+            if (!obj) {
+                PyErr_SetString(PyExc_TypeError,
+                        "dumps missing required argument: 'obj'");
+                return NULL;
+            }
+            Py_INCREF(obj);
+            if (PyDict_DelItem(kwargs, _CBOAR_str_obj) == -1) {
+                Py_DECREF(obj);
+                return NULL;
+            }
+            new_args = PyTuple_Pack(2, obj, fp);
+            if (!new_args)
+                return NULL;
+        } else {
+            obj = PyTuple_GET_ITEM(args, 0);
+            new_args = PyTuple_New(PyTuple_GET_SIZE(args) + 1);
+            if (!new_args)
+                return NULL;
+            Py_INCREF(obj);
+            Py_INCREF(fp);
+            PyTuple_SET_ITEM(new_args, 0, obj);  // steals ref
+            PyTuple_SET_ITEM(new_args, 1, fp);  // steals ref
+            for (i = 1; i < PyTuple_GET_SIZE(args); ++i) {
+                Py_INCREF(PyTuple_GET_ITEM(args, i));
+                PyTuple_SET_ITEM(new_args, i + 1, PyTuple_GET_ITEM(args, i));
+            }
+        }
+        ret = CBOAR_dump(module, new_args, kwargs);
+        Py_DECREF(new_args);
+        if (ret) {
+            Py_DECREF(ret);
+            ret = PyObject_CallMethodObjArgs(fp, _CBOAR_str_getvalue, NULL);
+        }
+        Py_DECREF(fp);
+    }
+    return ret;
+}
+
+
+static PyObject *
 CBOAR_load(PyObject *module, PyObject *args, PyObject *kwargs)
 {
     PyObject *ret = NULL;
@@ -244,7 +296,7 @@ CBOAR_load(PyObject *module, PyObject *args, PyObject *kwargs)
 static PyObject *
 CBOAR_loads(PyObject *module, PyObject *args, PyObject *kwargs)
 {
-    PyObject *new_args, *buf, *stream, *ret = NULL;
+    PyObject *new_args, *buf, *fp, *ret = NULL;
     Py_ssize_t i;
 
     if (!_CBOAR_BytesIO && _CBOAR_init_BytesIO() == -1)
@@ -281,11 +333,11 @@ CBOAR_loads(PyObject *module, PyObject *args, PyObject *kwargs)
         }
     }
 
-    stream = PyObject_CallFunctionObjArgs(_CBOAR_BytesIO, buf, NULL);
-    if (stream) {
-        PyTuple_SET_ITEM(new_args, 0, stream);
+    fp = PyObject_CallFunctionObjArgs(_CBOAR_BytesIO, buf, NULL);
+    if (fp) {
+        PyTuple_SET_ITEM(new_args, 0, fp);
         ret = CBOAR_load(module, new_args, kwargs);
-        // no need to dec. ref stream here because SET_ITEM above stole the ref
+        // no need to dec. ref fp here because SET_ITEM above stole the ref
     }
     Py_DECREF(new_args);
     return ret;
@@ -504,6 +556,7 @@ PyObject *_CBOAR_str_buf = NULL;
 PyObject *_CBOAR_str_bytes = NULL;
 PyObject *_CBOAR_str_BytesIO = NULL;
 PyObject *_CBOAR_str_compile = NULL;
+PyObject *_CBOAR_str_copy = NULL;
 PyObject *_CBOAR_str_datestr_re = NULL;
 PyObject *_CBOAR_str_Decimal = NULL;
 PyObject *_CBOAR_str_denominator = NULL;
@@ -527,6 +580,7 @@ PyObject *_CBOAR_str_pattern = NULL;
 PyObject *_CBOAR_str_read = NULL;
 PyObject *_CBOAR_str_timestamp = NULL;
 PyObject *_CBOAR_str_timezone = NULL;
+PyObject *_CBOAR_str_update = NULL;
 PyObject *_CBOAR_str_utc = NULL;
 PyObject *_CBOAR_str_utc_suffix = NULL;
 PyObject *_CBOAR_str_UUID = NULL;
@@ -544,6 +598,120 @@ PyObject *_CBOAR_re_compile = NULL;
 PyObject *_CBOAR_datestr_re = NULL;
 PyObject *_CBOAR_ip_address = NULL;
 
+PyObject *_CBOAR_default_encoders = NULL;
+PyObject *_CBOAR_canonical_encoders = NULL;
+
+static int
+add_default_encoder(PyObject *dict, PyObject *type, const char * const method)
+{
+    int ret = -1;
+    PyObject *meth;
+
+    meth = PyObject_GetAttrString((PyObject *) &CBOREncoderType, method);
+    if (meth) {
+        ret = PyObject_SetItem(dict, type, meth);
+        Py_DECREF(meth);
+    }
+    return ret;
+}
+
+static int
+add_deferred_encoder(PyObject *dict, const char * const module,
+        const char * const type, const char * const method)
+{
+    int ret = -1;
+    PyObject *mod_name, *type_name, *tuple;
+
+    mod_name = PyUnicode_FromString(module);
+    if (mod_name) {
+        type_name = PyUnicode_FromString(type);
+        if (type_name) {
+            tuple = PyTuple_Pack(2, mod_name, type_name);
+            if (tuple) {
+                ret = add_default_encoder(dict, tuple, method);
+                Py_DECREF(tuple);
+            }
+            Py_DECREF(type_name);
+        }
+        Py_DECREF(mod_name);
+    }
+    return ret;
+}
+
+#define ADD_MAPPING(type, method) \
+    if (add_default_encoder(ret, type, method) == -1) goto error;
+#define ADD_DEFERRED(module, type, method) \
+    if (add_deferred_encoder(ret, module, type, method) == -1) goto error;
+
+static PyObject *
+init_default_encoders(PyObject *m)
+{
+    PyObject *ret = NULL;
+
+    if (!_CBOAR_OrderedDict && _CBOAR_init_OrderedDict() == -1)
+        return NULL;
+
+    ret = PyObject_CallFunctionObjArgs(_CBOAR_OrderedDict, NULL);
+    if (ret) {
+        ADD_MAPPING((PyObject *) &PyBytes_Type,                "encode_bytes");
+        ADD_MAPPING((PyObject *) &PyByteArray_Type,            "encode_bytearray");
+        ADD_MAPPING((PyObject *) &PyUnicode_Type,              "encode_string");
+        ADD_MAPPING((PyObject *) &PyLong_Type,                 "encode_int");
+        ADD_MAPPING((PyObject *) &PyFloat_Type,                "encode_float");
+        ADD_DEFERRED("decimal", "Decimal",                     "encode_decimal");
+        ADD_MAPPING((PyObject *) &PyBool_Type,                 "encode_boolean");
+        ADD_MAPPING((PyObject *) Py_None->ob_type,             "encode_none");
+        ADD_MAPPING((PyObject *) &PyTuple_Type,                "encode_array");
+        ADD_MAPPING((PyObject *) &PyList_Type,                 "encode_array");
+        ADD_MAPPING((PyObject *) &PyDict_Type,                 "encode_map");
+        ADD_DEFERRED("collections", "defaultdict",             "encode_map");
+        ADD_MAPPING(_CBOAR_OrderedDict,                        "encode_map");
+        // TODO add FrozenDict type
+        ADD_MAPPING((PyObject *) undefined->ob_type,           "encode_undefined");
+        ADD_MAPPING((PyObject *) PyDateTimeAPI->DateTimeType,  "encode_datetime");
+        ADD_MAPPING((PyObject *) PyDateTimeAPI->DateType,      "encode_date");
+        // TODO add re.compile type
+        ADD_DEFERRED("fractions", "Fraction",                  "encode_rational");
+        ADD_DEFERRED("email.message", "Message",               "encode_mime");
+        ADD_DEFERRED("uuid", "UUID",                           "encode_uuid");
+        ADD_MAPPING((PyObject *) &CBORSimpleValueType,         "encode_simple");
+        ADD_MAPPING((PyObject *) &CBORTagType,                 "encode_semantic");
+        ADD_MAPPING((PyObject *) &PySet_Type,                  "encode_set");
+        ADD_MAPPING((PyObject *) &PyFrozenSet_Type,            "encode_set");
+    }
+    return ret;
+error:
+    Py_DECREF(ret);
+    return NULL;
+}
+
+static PyObject *
+init_canonical_encoders(PyObject *m)
+{
+    PyObject *ret = NULL;
+
+    if (!_CBOAR_OrderedDict && _CBOAR_init_OrderedDict() == -1)
+        return NULL;
+
+    ret = PyObject_CallFunctionObjArgs(_CBOAR_OrderedDict, NULL);
+    if (ret) {
+        ADD_MAPPING((PyObject *) &PyFloat_Type,         "encode_minimal_float");
+        ADD_MAPPING((PyObject *) &PyDict_Type,          "encode_canonical_map");
+        ADD_DEFERRED("collections", "defaultdict",      "encode_canonical_map");
+        ADD_MAPPING(_CBOAR_OrderedDict,                 "encode_canonical_map");
+        // TODO add FrozenDict type
+        ADD_MAPPING((PyObject *) &PySet_Type,           "encode_canonical_set");
+        ADD_MAPPING((PyObject *) &PyFrozenSet_Type,     "encode_canonical_set");
+    }
+    return ret;
+error:
+    Py_DECREF(ret);
+    return NULL;
+}
+
+#undef ADD_DEFERRED
+#undef ADD_MAPPING
+
 static void
 cboar_free(PyObject *m)
 {
@@ -558,11 +726,15 @@ cboar_free(PyObject *m)
     Py_CLEAR(_CBOAR_re_compile);
     Py_CLEAR(_CBOAR_datestr_re);
     Py_CLEAR(_CBOAR_ip_address);
+    Py_CLEAR(_CBOAR_default_encoders);
+    Py_CLEAR(_CBOAR_canonical_encoders);
 }
 
 static PyMethodDef _cboarmethods[] = {
     {"dump", (PyCFunction) CBOAR_dump, METH_VARARGS | METH_KEYWORDS,
         "encode a value to the stream"},
+    {"dumps", (PyCFunction) CBOAR_dumps, METH_VARARGS | METH_KEYWORDS,
+        "encode a value to a byte-string"},
     {"load", (PyCFunction) CBOAR_load, METH_VARARGS | METH_KEYWORDS,
         "decode a value from the stream"},
     {"loads", (PyCFunction) CBOAR_loads, METH_VARARGS | METH_KEYWORDS,
@@ -653,6 +825,7 @@ PyInit__cboar(void)
     INTERN_STRING(bytes);
     INTERN_STRING(BytesIO);
     INTERN_STRING(compile);
+    INTERN_STRING(copy);
     INTERN_STRING(Decimal);
     INTERN_STRING(denominator);
     INTERN_STRING(Fraction);
@@ -675,6 +848,7 @@ PyInit__cboar(void)
     INTERN_STRING(read);
     INTERN_STRING(timestamp);
     INTERN_STRING(timezone);
+    INTERN_STRING(update);
     INTERN_STRING(utc);
     INTERN_STRING(UUID);
     INTERN_STRING(write);
@@ -696,6 +870,18 @@ PyInit__cboar(void)
         goto error;
     if (!_CBOAR_empty_str &&
             !(_CBOAR_empty_str = PyUnicode_FromStringAndSize(NULL, 0)))
+        goto error;
+
+    _CBOAR_default_encoders = init_default_encoders(module);
+    if (!_CBOAR_default_encoders)
+        goto error;
+    if (PyModule_AddObject(module, "default_encoders", _CBOAR_default_encoders) == -1)
+        goto error;
+
+    _CBOAR_canonical_encoders = init_canonical_encoders(module);
+    if (!_CBOAR_canonical_encoders)
+        goto error;
+    if (PyModule_AddObject(module, "canonical_encoders", _CBOAR_canonical_encoders) == -1)
         goto error;
 
     return module;
