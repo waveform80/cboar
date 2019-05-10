@@ -128,12 +128,9 @@ CBOREncoder_init(CBOREncoderObject *self, PyObject *args, PyObject *kwargs)
     tmp = self->encoders;
     self->encoders = PyObject_CallMethodObjArgs(
         _CBOAR_default_encoders, _CBOAR_str_copy, NULL);
-    if (!self->encoders) {
-        Py_DECREF(tmp);
-        return -1;
-    }
-    Py_INCREF(self->encoders);
     Py_DECREF(tmp);
+    if (!self->encoders)
+        return -1;
     if (self->enc_style)
         if (!PyObject_CallMethodObjArgs(self->encoders,
                     _CBOAR_str_update, _CBOAR_canonical_encoders, NULL))

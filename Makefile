@@ -147,7 +147,9 @@ speedtest:
 	$(PYTHON) scripts/speed_test.py
 
 leaktest:
-	@echo TODO
+	$(PIP) install objgraph
+	$(PIP) install -v -e .[test]
+	$(PYTHON) scripts/ref_leak.py
 
 clean:
 	dh_clean

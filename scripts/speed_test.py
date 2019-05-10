@@ -53,9 +53,9 @@ Result = namedtuple('Result', ('encoding', 'decoding'))
 Timing = namedtuple('Timing', ('time', 'repeat', 'count'))
 
 
-def autorange(routine, *args, limit=0.2, **kwargs):
+def autorange(op, limit=0.2):
     # Adapted from the Python 3.7 version of timeit
-    t = timeit.Timer(lambda: routine(*args, **kwargs))
+    t = timeit.Timer(op)
     i = 1
     while True:
         for j in 1, 2, 5:
@@ -66,12 +66,12 @@ def autorange(routine, *args, limit=0.2, **kwargs):
         i *= 10
 
 
-def time(routine, *args, repeat=3, **kwargs):
+def time(op, repeat=3):
     try:
-        number = autorange(routine, *args, limit=0.02, **kwargs)
+        number = autorange(op, limit=0.02)
     except Exception as e:
         return e
-    t = timeit.Timer(lambda: routine(*args, **kwargs))
+    t = timeit.Timer(op)
     return Timing(min(t.repeat(repeat, number)) / number, repeat, number)
 
 
@@ -115,8 +115,8 @@ def main():
         encoded = cbor2.dumps(value, **kwargs)
         results[name] = Codec(**{
             mod.__name__: Result(
-                encoding=time(mod.dumps, value, **kwargs),
-                decoding=time(mod.loads, encoded)
+                encoding=time(lambda: mod.dumps(value, **kwargs)),
+                decoding=time(lambda: mod.loads(encoded))
             )
             for mod in (cbor, cbor2, cboar)
         })
