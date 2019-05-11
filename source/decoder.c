@@ -14,11 +14,19 @@
 #include "decoder.h"
 
 
+enum DecodeOption {
+    DECODE_NORMAL = 0,
+    DECODE_IMMUTABLE = 1,
+    DECODE_UNSHARED = 2
+};
+typedef uint8_t DecodeOptions;
+
 static int _CBORDecoder_set_fp(CBORDecoderObject *, PyObject *, void *);
 static int _CBORDecoder_set_tag_hook(CBORDecoderObject *, PyObject *, void *);
 static int _CBORDecoder_set_object_hook(CBORDecoderObject *, PyObject *, void *);
 static int _CBORDecoder_set_str_errors(CBORDecoderObject *, PyObject *, void *);
 
+static PyObject * decode(CBORDecoderObject *, DecodeOptions);
 static PyObject * decode_bytestring(CBORDecoderObject *, uint8_t);
 static PyObject * decode_string(CBORDecoderObject *, uint8_t);
 static PyObject * CBORDecoder_decode_datestr(CBORDecoderObject *);
@@ -40,9 +48,6 @@ static PyObject * CBORDecoder_decode_ipaddress(CBORDecoderObject *);
 static PyObject * CBORDecoder_decode_shareable(CBORDecoderObject *);
 static PyObject * CBORDecoder_decode_shared(CBORDecoderObject *);
 static PyObject * CBORDecoder_decode_set(CBORDecoderObject *);
-static PyObject * CBORDecoder_decode_immutable(CBORDecoderObject *);
-static PyObject * CBORDecoder_decode_unshared(CBORDecoderObject *);
-static PyObject * CBORDecoder_decode_immutable_unshared(CBORDecoderObject *);
 
 // TODO Docstrings
 
@@ -631,7 +636,7 @@ decode_indefinite_array(CBORDecoderObject *self)
         ret = array;
         set_shareable(self, array);
         while (ret) {
-            item = CBORDecoder_decode_unshared(self);
+            item = decode(self, DECODE_UNSHARED);
             if (item == break_marker) {
                 Py_DECREF(item);
                 break;
@@ -674,7 +679,7 @@ decode_definite_array(CBORDecoderObject *self, uint64_t length)
         if (array) {
             ret = array;
             for (i = 0; i < length; ++i) {
-                item = CBORDecoder_decode_unshared(self);
+                item = decode(self, DECODE_UNSHARED);
                 if (item)
                     PyTuple_SET_ITEM(array, i, item);
                 else {
@@ -695,7 +700,7 @@ decode_definite_array(CBORDecoderObject *self, uint64_t length)
             ret = array;
             set_shareable(self, array);
             for (i = 0; i < length; ++i) {
-                item = CBORDecoder_decode_unshared(self);
+                item = decode(self, DECODE_UNSHARED);
                 if (item)
                     PyList_SET_ITEM(array, i, item);
                 else {
@@ -742,12 +747,12 @@ decode_map(CBORDecoderObject *self, uint8_t subtype)
         if (decode_length(self, subtype, &length, &indefinite) == 0) {
             if (indefinite) {
                 while (ret) {
-                    key = CBORDecoder_decode_immutable_unshared(self);
+                    key = decode(self, DECODE_IMMUTABLE | DECODE_UNSHARED);
                     if (key == break_marker) {
                         Py_DECREF(key);
                         break;
                     } else if (key) {
-                        value = CBORDecoder_decode_unshared(self);
+                        value = decode(self, DECODE_UNSHARED);
                         if (value) {
                             if (PyDict_SetItem(map, key, value) == -1)
                                 ret = NULL;
@@ -760,9 +765,9 @@ decode_map(CBORDecoderObject *self, uint8_t subtype)
                 }
             } else {
                 while (ret && length--) {
-                    key = CBORDecoder_decode_immutable_unshared(self);
+                    key = decode(self, DECODE_IMMUTABLE | DECODE_UNSHARED);
                     if (key) {
-                        value = CBORDecoder_decode_unshared(self);
+                        value = decode(self, DECODE_UNSHARED);
                         if (value) {
                             if (PyDict_SetItem(map, key, value) == -1)
                                 ret = NULL;
@@ -821,7 +826,7 @@ decode_semantic(CBORDecoderObject *self, uint8_t subtype)
                 tag = CBORTag_New(tagnum);
                 if (tag) {
                     set_shareable(self, tag);
-                    value = CBORDecoder_decode_unshared(self);
+                    value = decode(self, DECODE_UNSHARED);
                     if (value) {
                         if (CBORTag_SetValue(tag, value) == 0) {
                             if (self->tag_hook == Py_None) {
@@ -918,7 +923,7 @@ CBORDecoder_decode_datestr(CBORDecoderObject *self)
 
     if (!_CBOAR_datestr_re && _CBOAR_init_re_compile() == -1)
         return NULL;
-    str = CBORDecoder_decode(self);
+    str = decode(self, DECODE_NORMAL);
     if (str) {
         if (PyUnicode_Check(str)) {
             match = PyObject_CallMethodObjArgs(
@@ -949,7 +954,7 @@ CBORDecoder_decode_timestamp(CBORDecoderObject *self)
 
     if (!_CBOAR_timezone_utc && _CBOAR_init_timezone_utc() == -1)
         return NULL;
-    num = CBORDecoder_decode(self);
+    num = decode(self, DECODE_NORMAL);
     if (num) {
         if (PyNumber_Check(num)) {
             tuple = PyTuple_Pack(2, num, _CBOAR_timezone_utc);
@@ -974,7 +979,7 @@ CBORDecoder_decode_positive_bignum(CBORDecoderObject *self)
     // semantic type 2
     PyObject *bytes, *ret = NULL;
 
-    bytes = CBORDecoder_decode(self);
+    bytes = decode(self, DECODE_NORMAL);
     if (bytes) {
         if (PyBytes_CheckExact(bytes))
             ret = PyObject_CallMethod(
@@ -1024,7 +1029,7 @@ CBORDecoder_decode_fraction(CBORDecoderObject *self)
         return NULL;
     // NOTE: There's no particular necessity for this to be immutable, it's
     // just a performance choice
-    tuple = CBORDecoder_decode_immutable_unshared(self);
+    tuple = decode(self, DECODE_IMMUTABLE | DECODE_UNSHARED);
     if (tuple) {
         if (PyTuple_CheckExact(tuple) && PyTuple_GET_SIZE(tuple) == 2) {
             exp = PyTuple_GET_ITEM(tuple, 0);
@@ -1056,7 +1061,7 @@ CBORDecoder_decode_bigfloat(CBORDecoderObject *self)
     if (!_CBOAR_Decimal && _CBOAR_init_Decimal() == -1)
         return NULL;
     // NOTE: see semantic type 4
-    tuple = CBORDecoder_decode_immutable_unshared(self);
+    tuple = decode(self, DECODE_IMMUTABLE | DECODE_UNSHARED);
     if (tuple) {
         if (PyTuple_CheckExact(tuple) && PyTuple_GET_SIZE(tuple) == 2) {
             exp = PyTuple_GET_ITEM(tuple, 0);
@@ -1089,7 +1094,7 @@ CBORDecoder_decode_shareable(CBORDecoderObject *self)
     old_index = self->shared_index;
     self->shared_index = PyList_GET_SIZE(self->shareables);
     if (PyList_Append(self->shareables, Py_None) == 0)
-        ret = CBORDecoder_decode(self);
+        ret = decode(self, DECODE_NORMAL);
     self->shared_index = old_index;
     return ret;
 }
@@ -1102,7 +1107,7 @@ CBORDecoder_decode_shared(CBORDecoderObject *self)
     // semantic type 29
     PyObject *index, *ret = NULL;
 
-    index = CBORDecoder_decode_unshared(self);
+    index = decode(self, DECODE_UNSHARED);
     if (index) {
         if (PyLong_CheckExact(index)) {
             ret = PyList_GetItem(self->shareables, PyLong_AsSsize_t(index));
@@ -1139,7 +1144,7 @@ CBORDecoder_decode_rational(CBORDecoderObject *self)
     if (!_CBOAR_Fraction && _CBOAR_init_Fraction() == -1)
         return NULL;
     // NOTE: see semantic type 4
-    tuple = CBORDecoder_decode_immutable_unshared(self);
+    tuple = decode(self, DECODE_IMMUTABLE | DECODE_UNSHARED);
     if (tuple) {
         if (PyTuple_CheckExact(tuple) && PyTuple_GET_SIZE(tuple) == 2) {
             ret = PyObject_CallFunctionObjArgs(
@@ -1164,7 +1169,7 @@ CBORDecoder_decode_regexp(CBORDecoderObject *self)
 
     if (!_CBOAR_re_compile && _CBOAR_init_re_compile() == -1)
         return NULL;
-    pattern = CBORDecoder_decode_unshared(self);
+    pattern = decode(self, DECODE_UNSHARED);
     if (pattern) {
         ret = PyObject_CallFunctionObjArgs(_CBOAR_re_compile, pattern, NULL);
         Py_DECREF(pattern);
@@ -1183,7 +1188,7 @@ CBORDecoder_decode_mime(CBORDecoderObject *self)
 
     if (!_CBOAR_Parser && _CBOAR_init_Parser() == -1)
         return NULL;
-    value = CBORDecoder_decode_unshared(self);
+    value = decode(self, DECODE_UNSHARED);
     if (value) {
         parser = PyObject_CallFunctionObjArgs(_CBOAR_Parser, NULL);
         if (parser) {
@@ -1207,7 +1212,7 @@ CBORDecoder_decode_uuid(CBORDecoderObject *self)
 
     if (!_CBOAR_UUID && _CBOAR_init_UUID() == -1)
         return NULL;
-    bytes = CBORDecoder_decode_unshared(self);
+    bytes = decode(self, DECODE_UNSHARED);
     if (bytes) {
         ret = PyObject_CallFunctionObjArgs(_CBOAR_UUID, Py_None, bytes, NULL);
         Py_DECREF(bytes);
@@ -1224,7 +1229,7 @@ CBORDecoder_decode_set(CBORDecoderObject *self)
     // semantic type 258
     PyObject *array, *ret = NULL;
 
-    array = CBORDecoder_decode_immutable(self);
+    array = decode(self, DECODE_IMMUTABLE);
     if (array) {
         if (PyList_CheckExact(array) || PyTuple_CheckExact(array)) {
             if (self->immutable)
@@ -1253,7 +1258,7 @@ CBORDecoder_decode_ipaddress(CBORDecoderObject *self)
 
     if (!_CBOAR_ip_address && _CBOAR_init_ip_address() == -1)
         return NULL;
-    bytes = CBORDecoder_decode_unshared(self);
+    bytes = decode(self, DECODE_UNSHARED);
     if (bytes) {
         if (PyBytes_CheckExact(bytes)) {
             if (PyBytes_GET_SIZE(bytes) == 4 || PyBytes_GET_SIZE(bytes) == 16)
@@ -1404,12 +1409,22 @@ CBORDecoder_decode_float64(CBORDecoderObject *self)
 }
 
 
-// CBORDecoder.decode(self) -> obj
 PyObject *
-CBORDecoder_decode(CBORDecoderObject *self)
+decode(CBORDecoderObject *self, DecodeOptions options)
 {
+    bool old_immutable;
+    int32_t old_index;
     PyObject *ret = NULL;
     LeadByte lead;
+
+    if (options & DECODE_IMMUTABLE) {
+        old_immutable = self->immutable;
+        self->immutable = true;
+    }
+    if (options & DECODE_UNSHARED) {
+        old_index = self->shared_index;
+        self->shared_index = -1;
+    }
 
     if (Py_EnterRecursiveCall(" in CBORDecoder.decode"))
         return NULL;
@@ -1427,8 +1442,21 @@ CBORDecoder_decode(CBORDecoderObject *self)
             default: assert(0);
         }
     }
+
     Py_LeaveRecursiveCall();
+    if (options & DECODE_IMMUTABLE)
+        self->immutable = old_immutable;
+    if (options & DECODE_UNSHARED)
+        self->shared_index = old_index;
     return ret;
+}
+
+
+// CBORDecoder.decode(self) -> obj
+PyObject *
+CBORDecoder_decode(CBORDecoderObject *self)
+{
+    return decode(self, DECODE_NORMAL);
 }
 
 
@@ -1450,59 +1478,12 @@ CBORDecoder_decode_from_bytes(CBORDecoderObject *self, PyObject *data)
     if (buf) {
         self->read = PyObject_GetAttr(buf, _CBOAR_str_read);
         if (self->read) {
-            ret = CBORDecoder_decode(self);
+            ret = decode(self, DECODE_NORMAL);
             Py_DECREF(self->read);
         }
         Py_DECREF(buf);
     }
     self->read = save_read;
-    return ret;
-}
-
-
-// TODO Consolidate these utility methods into arguments on decode?
-static PyObject *
-CBORDecoder_decode_unshared(CBORDecoderObject *self)
-{
-    int32_t old_index;
-    PyObject *ret;
-
-    old_index = self->shared_index;
-    self->shared_index = -1;
-    ret = CBORDecoder_decode(self);
-    self->shared_index = old_index;
-    return ret;
-}
-
-
-static PyObject *
-CBORDecoder_decode_immutable(CBORDecoderObject *self)
-{
-    bool old_immutable;
-    PyObject *ret;
-
-    old_immutable = self->immutable;
-    self->immutable = true;
-    ret = CBORDecoder_decode(self);
-    self->immutable = old_immutable;
-    return ret;
-}
-
-
-static PyObject *
-CBORDecoder_decode_immutable_unshared(CBORDecoderObject *self)
-{
-    bool old_immutable;
-    int32_t old_index;
-    PyObject *ret;
-
-    old_immutable = self->immutable;
-    old_index = self->shared_index;
-    self->immutable = true;
-    self->shared_index = -1;
-    ret = CBORDecoder_decode(self);
-    self->immutable = old_immutable;
-    self->shared_index = old_index;
     return ret;
 }
 
