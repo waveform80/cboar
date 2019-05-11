@@ -646,9 +646,12 @@ add_deferred_encoder(PyObject *dict, const char * const module,
 static PyObject *
 init_default_encoders(PyObject *m)
 {
-    PyObject *ret = NULL;
+    PyObject *pattern, *ret = NULL;
 
     if (!_CBOAR_OrderedDict && _CBOAR_init_OrderedDict() == -1)
+        return NULL;
+
+    if (!_CBOAR_re_compile && _CBOAR_init_re_compile() == -1)
         return NULL;
 
     ret = PyObject_CallFunctionObjArgs(_CBOAR_OrderedDict, NULL);
@@ -670,10 +673,17 @@ init_default_encoders(PyObject *m)
         ADD_MAPPING((PyObject *) undefined->ob_type,           "encode_undefined");
         ADD_MAPPING((PyObject *) PyDateTimeAPI->DateTimeType,  "encode_datetime");
         ADD_MAPPING((PyObject *) PyDateTimeAPI->DateType,      "encode_date");
-        // TODO add re.compile type
+        pattern = PyObject_CallFunctionObjArgs(
+                _CBOAR_re_compile, _CBOAR_empty_str, NULL);
+        if (!pattern)
+            goto error;
+        ADD_MAPPING((PyObject *) pattern->ob_type,             "encode_regex");
+        Py_DECREF(pattern);
         ADD_DEFERRED("fractions", "Fraction",                  "encode_rational");
         ADD_DEFERRED("email.message", "Message",               "encode_mime");
         ADD_DEFERRED("uuid", "UUID",                           "encode_uuid");
+        ADD_DEFERRED("ipaddress", "IPv4Address",               "encode_ipaddress");
+        ADD_DEFERRED("ipaddress", "IPv6Address",               "encode_ipaddress");
         ADD_MAPPING((PyObject *) &CBORSimpleValueType,         "encode_simple");
         ADD_MAPPING((PyObject *) &CBORTagType,                 "encode_semantic");
         ADD_MAPPING((PyObject *) &PySet_Type,                  "encode_set");
