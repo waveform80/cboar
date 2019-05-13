@@ -47,11 +47,13 @@ extern PyObject *_CBOAR_str_fromtimestamp;
 extern PyObject *_CBOAR_str_getvalue;
 extern PyObject *_CBOAR_str_groups;
 extern PyObject *_CBOAR_str_ip_address;
+extern PyObject *_CBOAR_str_ip_network;
 extern PyObject *_CBOAR_str_is_infinite;
 extern PyObject *_CBOAR_str_is_nan;
 extern PyObject *_CBOAR_str_isoformat;
 extern PyObject *_CBOAR_str_join;
 extern PyObject *_CBOAR_str_match;
+extern PyObject *_CBOAR_str_network_address;
 extern PyObject *_CBOAR_str_numerator;
 extern PyObject *_CBOAR_str_obj;
 extern PyObject *_CBOAR_str_OrderedDict;
@@ -59,6 +61,7 @@ extern PyObject *_CBOAR_str_packed;
 extern PyObject *_CBOAR_str_Parser;
 extern PyObject *_CBOAR_str_parsestr;
 extern PyObject *_CBOAR_str_pattern;
+extern PyObject *_CBOAR_str_prefixlen;
 extern PyObject *_CBOAR_str_read;
 extern PyObject *_CBOAR_str_timestamp;
 extern PyObject *_CBOAR_str_timezone;
@@ -85,6 +88,7 @@ extern PyObject *_CBOAR_Parser;
 extern PyObject *_CBOAR_re_compile;
 extern PyObject *_CBOAR_datestr_re;
 extern PyObject *_CBOAR_ip_address;
+extern PyObject *_CBOAR_ip_network;
 
 // Initializers for the cached references above
 int _CBOAR_init_timezone_utc(void); // also handles timezone

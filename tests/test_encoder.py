@@ -251,6 +251,18 @@ def test_ipaddress(value, expected):
     assert dumps(value) == expected
 
 
+@pytest.mark.parametrize('value, expected', [
+    (ip_network('192.168.0.100/24', False), 'd90105a144c0a800001818'),
+    (ip_network('2001:db8:85a3:0:0:8a2e::/96', False), 'd90105a15020010db885a3000000008a2e000000001860'),
+], ids=[
+    'ipv4',
+    'ipv6',
+])
+def test_ipnetwork(value, expected):
+    expected = unhexlify(expected)
+    assert dumps(value) == expected
+
+
 def test_custom_tag():
     expected = unhexlify('d917706548656c6c6f')
     assert dumps(CBORTag(6000, u'Hello')) == expected

@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from email.message import Message
 from fractions import Fraction
-from ipaddress import ip_address
+from ipaddress import ip_address, ip_network
 from io import BytesIO
 from uuid import UUID
 
@@ -358,6 +358,31 @@ def test_bad_ipaddress():
     with pytest.raises(CBORDecodeError) as exc:
         loads(unhexlify('d9010401'))
     assert str(exc.value).endswith('invalid ipaddress value 1')
+
+
+@pytest.mark.parametrize('payload, expected', [
+    ('d90105a144c0a800641818', ip_network('192.168.0.100/24', False)),
+    ('d90105a15020010db885a3000000008a2e000000001860', ip_network('2001:db8:85a3:0:0:8a2e::/96', False)),
+], ids=[
+    'ipv4',
+    'ipv6',
+])
+def test_ipnetwork(payload, expected):
+    payload = unhexlify(payload)
+    assert loads(payload) == expected
+
+
+def test_bad_ipnetwork():
+    with pytest.raises(CBORDecodeError) as exc:
+        loads(unhexlify('d90105a244c0a80064181844c0a800001818'))
+    assert str(exc.value).endswith(
+        'invalid ipnetwork value %r' %
+        {b'\xc0\xa8\x00d': 24, b'\xc0\xa8\x00\x00': 24})
+    with pytest.raises(CBORDecodeError) as exc:
+        loads(unhexlify('d90105a144c0a80064420102'))
+    assert str(exc.value).endswith(
+        'invalid ipnetwork value %r' %
+        {b'\xc0\xa8\x00d': b'\x01\x02'})
 
 
 def test_bad_shared_reference():

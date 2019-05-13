@@ -44,6 +44,7 @@ static PyObject * CBORDecoder_decode_float16(CBORDecoderObject *);
 static PyObject * CBORDecoder_decode_float32(CBORDecoderObject *);
 static PyObject * CBORDecoder_decode_float64(CBORDecoderObject *);
 static PyObject * CBORDecoder_decode_ipaddress(CBORDecoderObject *);
+static PyObject * CBORDecoder_decode_ipnetwork(CBORDecoderObject *);
 
 static PyObject * CBORDecoder_decode_shareable(CBORDecoderObject *);
 static PyObject * CBORDecoder_decode_shared(CBORDecoderObject *);
@@ -819,6 +820,7 @@ decode_semantic(CBORDecoderObject *self, uint8_t subtype)
             case 37:  ret = CBORDecoder_decode_uuid(self);            break;
             case 258: ret = CBORDecoder_decode_set(self);             break;
             case 260: ret = CBORDecoder_decode_ipaddress(self);       break;
+            case 261: ret = CBORDecoder_decode_ipnetwork(self);       break;
             default:
                 tag = CBORTag_New(tagnum);
                 if (tag) {
@@ -1289,6 +1291,49 @@ CBORDecoder_decode_ipaddress(CBORDecoderObject *self)
             PyErr_Format(
                 _CBOAR_CBORDecodeError, "invalid ipaddress value %R", bytes);
         Py_DECREF(bytes);
+    }
+    set_shareable(self, ret);
+    return ret;
+}
+
+
+// CBORDecoder.decode_ipnetwork(self)
+static PyObject *
+CBORDecoder_decode_ipnetwork(CBORDecoderObject *self)
+{
+    // semantic type 261
+    PyObject *map, *tuple, *bytes, *prefixlen, *ret = NULL;
+    Py_ssize_t pos = 0;
+
+    if (!_CBOAR_ip_network && _CBOAR_init_ip_address() == -1)
+        return NULL;
+    map = decode(self, DECODE_UNSHARED);
+    if (map) {
+        if (PyDict_CheckExact(map) && PyDict_Size(map) == 1) {
+            if (PyDict_Next(map, &pos, &bytes, &prefixlen)) {
+                if (
+                        PyBytes_CheckExact(bytes) &&
+                        PyLong_CheckExact(prefixlen) &&
+                        (PyBytes_GET_SIZE(bytes) == 4 ||
+                         PyBytes_GET_SIZE(bytes) == 16)) {
+                    tuple = PyTuple_Pack(2, bytes, prefixlen);
+                    if (tuple) {
+                        ret = PyObject_CallFunctionObjArgs(
+                                _CBOAR_ip_network, tuple, Py_False, NULL);
+                        Py_DECREF(tuple);
+                    }
+                } else
+                    PyErr_Format(
+                        _CBOAR_CBORDecodeError,
+                        "invalid ipnetwork value %R", map);
+            } else
+                // We've already checked the size is 1 so this shouldn't be
+                // possible
+                assert(0);
+        } else
+            PyErr_Format(
+                _CBOAR_CBORDecodeError, "invalid ipnetwork value %R", map);
+        Py_DECREF(map);
     }
     set_shareable(self, ret);
     return ret;

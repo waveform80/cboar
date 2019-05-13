@@ -539,8 +539,11 @@ _CBOAR_init_ip_address(void)
     if (!ipaddress)
         goto error;
     _CBOAR_ip_address = PyObject_GetAttr(ipaddress, _CBOAR_str_ip_address);
+    _CBOAR_ip_network = PyObject_GetAttr(ipaddress, _CBOAR_str_ip_network);
     Py_DECREF(ipaddress);
     if (!_CBOAR_ip_address)
+        goto error;
+    if (!_CBOAR_ip_network)
         goto error;
     return 0;
 error:
@@ -569,11 +572,13 @@ PyObject *_CBOAR_str_fromtimestamp = NULL;
 PyObject *_CBOAR_str_getvalue = NULL;
 PyObject *_CBOAR_str_groups = NULL;
 PyObject *_CBOAR_str_ip_address = NULL;
+PyObject *_CBOAR_str_ip_network = NULL;
 PyObject *_CBOAR_str_is_infinite = NULL;
 PyObject *_CBOAR_str_is_nan = NULL;
 PyObject *_CBOAR_str_isoformat = NULL;
 PyObject *_CBOAR_str_join = NULL;
 PyObject *_CBOAR_str_match = NULL;
+PyObject *_CBOAR_str_network_address = NULL;
 PyObject *_CBOAR_str_numerator = NULL;
 PyObject *_CBOAR_str_obj = NULL;
 PyObject *_CBOAR_str_OrderedDict = NULL;
@@ -581,6 +586,7 @@ PyObject *_CBOAR_str_packed = NULL;
 PyObject *_CBOAR_str_Parser = NULL;
 PyObject *_CBOAR_str_parsestr = NULL;
 PyObject *_CBOAR_str_pattern = NULL;
+PyObject *_CBOAR_str_prefixlen = NULL;
 PyObject *_CBOAR_str_read = NULL;
 PyObject *_CBOAR_str_timestamp = NULL;
 PyObject *_CBOAR_str_timezone = NULL;
@@ -605,6 +611,7 @@ PyObject *_CBOAR_Parser = NULL;
 PyObject *_CBOAR_re_compile = NULL;
 PyObject *_CBOAR_datestr_re = NULL;
 PyObject *_CBOAR_ip_address = NULL;
+PyObject *_CBOAR_ip_network = NULL;
 
 PyObject *_CBOAR_default_encoders = NULL;
 PyObject *_CBOAR_canonical_encoders = NULL;
@@ -692,6 +699,8 @@ init_default_encoders(PyObject *m)
         ADD_DEFERRED("uuid", "UUID",                           "encode_uuid");
         ADD_DEFERRED("ipaddress", "IPv4Address",               "encode_ipaddress");
         ADD_DEFERRED("ipaddress", "IPv6Address",               "encode_ipaddress");
+        ADD_DEFERRED("ipaddress", "IPv4Network",               "encode_ipnetwork");
+        ADD_DEFERRED("ipaddress", "IPv6Network",               "encode_ipnetwork");
         ADD_MAPPING((PyObject *) &CBORSimpleValueType,         "encode_simple");
         ADD_MAPPING((PyObject *) &CBORTagType,                 "encode_semantic");
         ADD_MAPPING((PyObject *) &PySet_Type,                  "encode_set");
@@ -744,6 +753,7 @@ cboar_free(PyObject *m)
     Py_CLEAR(_CBOAR_re_compile);
     Py_CLEAR(_CBOAR_datestr_re);
     Py_CLEAR(_CBOAR_ip_address);
+    Py_CLEAR(_CBOAR_ip_network);
     Py_CLEAR(_CBOAR_CBOREncodeError);
     Py_CLEAR(_CBOAR_CBORDecodeError);
     Py_CLEAR(_CBOAR_CBORError);
@@ -891,11 +901,13 @@ PyInit__cboar(void)
     INTERN_STRING(getvalue);
     INTERN_STRING(groups);
     INTERN_STRING(ip_address);
+    INTERN_STRING(ip_network);
     INTERN_STRING(is_infinite);
     INTERN_STRING(is_nan);
     INTERN_STRING(isoformat);
     INTERN_STRING(join);
     INTERN_STRING(match);
+    INTERN_STRING(network_address);
     INTERN_STRING(numerator);
     INTERN_STRING(obj);
     INTERN_STRING(OrderedDict);
@@ -903,6 +915,7 @@ PyInit__cboar(void)
     INTERN_STRING(Parser);
     INTERN_STRING(parsestr);
     INTERN_STRING(pattern);
+    INTERN_STRING(prefixlen);
     INTERN_STRING(read);
     INTERN_STRING(timestamp);
     INTERN_STRING(timezone);

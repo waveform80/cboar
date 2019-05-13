@@ -1288,6 +1288,45 @@ CBOREncoder_encode_ipaddress(CBOREncoderObject *self, PyObject *value)
 }
 
 
+static PyObject *
+encode_ipnetwork(CBOREncoderObject *self, PyObject *value)
+{
+    PyObject *map, *addr, *bytes, *prefixlen, *ret = NULL;
+
+    addr = PyObject_GetAttr(value, _CBOAR_str_network_address);
+    if (addr) {
+        bytes = PyObject_GetAttr(addr, _CBOAR_str_packed);
+        if (bytes) {
+            prefixlen = PyObject_GetAttr(value, _CBOAR_str_prefixlen);
+            if (prefixlen) {
+                map = PyDict_New();
+                if (map) {
+                    if (PyDict_SetItem(map, bytes, prefixlen) == 0) {
+                        if (encode_semantic(self, 261, map) == 0) {
+                            Py_INCREF(Py_None);
+                            ret = Py_None;
+                        }
+                    }
+                    Py_DECREF(map);
+                }
+                Py_DECREF(prefixlen);
+            }
+            Py_DECREF(bytes);
+        }
+        Py_DECREF(addr);
+    }
+    return ret;
+}
+
+
+// CBOREncoder.encode_ipnetwork(self, value)
+static PyObject *
+CBOREncoder_encode_ipnetwork(CBOREncoderObject *self, PyObject *value)
+{
+    // semantic type 261
+    return encode_shared(self, &encode_ipnetwork, value);
+}
+
 
 // Special encoders //////////////////////////////////////////////////////////
 
@@ -1876,6 +1915,8 @@ static PyMethodDef CBOREncoder_methods[] = {
         "encode the specified set to the output"},
     {"encode_ipaddress", (PyCFunction) CBOREncoder_encode_ipaddress, METH_O,
         "encode the specified IPv4 or IPv6 address to the output"},
+    {"encode_ipnetwork", (PyCFunction) CBOREncoder_encode_ipnetwork, METH_O,
+        "encode the specified IPv4 or IPv6 network prefix to the output"},
     {"encode_shared", (PyCFunction) CBOREncoder_encode_shared, METH_VARARGS,
         "encode the specified CBORTag to the output"},
     // Canonical encoding methods
