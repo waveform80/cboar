@@ -68,6 +68,11 @@ extern PyObject *_CBOAR_str_utc_suffix;
 extern PyObject *_CBOAR_str_UUID;
 extern PyObject *_CBOAR_str_write;
 
+// Exception classes
+extern PyObject *_CBOAR_CBORError;
+extern PyObject *_CBOAR_CBOREncodeError;
+extern PyObject *_CBOAR_CBORDecodeError;
+
 // Global references (initialized by functions declared below)
 extern PyObject *_CBOAR_timezone;
 extern PyObject *_CBOAR_timezone_utc;

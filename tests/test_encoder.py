@@ -198,7 +198,7 @@ def test_date():
 
 def test_naive_datetime():
     """Test that naive datetimes are gracefully rejected when no timezone has been set."""
-    with pytest.raises(ValueError) as exc:
+    with pytest.raises(CBOREncodeError) as exc:
         dumps(datetime(2013, 3, 21))
         exc.match('naive datetime encountered and no default timezone has been set')
 
@@ -268,7 +268,7 @@ def test_cyclic_array_nosharing():
     """Test that serializing a cyclic structure w/o value sharing will blow up gracefully."""
     a = []
     a.append(a)
-    with pytest.raises(ValueError) as exc:
+    with pytest.raises(CBOREncodeError) as exc:
         dumps(a)
         exc.match('cyclic data structure detected but value sharing is disabled')
 
@@ -285,7 +285,7 @@ def test_cyclic_map_nosharing():
     """Test that serializing a cyclic structure w/o value sharing will fail gracefully."""
     a = {}
     a[0] = a
-    with pytest.raises(ValueError) as exc:
+    with pytest.raises(CBOREncodeError) as exc:
         dumps(a)
         exc.match('cyclic data structure detected but value sharing is disabled')
 
@@ -303,7 +303,7 @@ def test_not_cyclic_same_object(value_sharing, expected):
 
 
 def test_unsupported_type():
-    with pytest.raises(ValueError) as exc:
+    with pytest.raises(CBOREncodeError) as exc:
         dumps(lambda: None)
         exc.match('cannot serialize type function')
 

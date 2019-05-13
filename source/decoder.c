@@ -49,8 +49,6 @@ static PyObject * CBORDecoder_decode_shareable(CBORDecoderObject *);
 static PyObject * CBORDecoder_decode_shared(CBORDecoderObject *);
 static PyObject * CBORDecoder_decode_set(CBORDecoderObject *);
 
-// TODO Docstrings
-
 
 // Constructors and destructors //////////////////////////////////////////////
 
@@ -319,9 +317,10 @@ fp_read(CBORDecoderObject *self, char *buf, const uint64_t size)
                 memcpy(buf, data, size);
                 ret = 0;
             } else {
-                PyErr_Format(PyExc_ValueError,
-                        "premature end of stream (expected to read %d bytes, "
-                        "got %d instead)", size, PyBytes_GET_SIZE(obj));
+                PyErr_Format(
+                    _CBOAR_CBORDecodeError,
+                    "premature end of stream (expected to read %d bytes, "
+                    "got %d instead)", size, PyBytes_GET_SIZE(obj));
             }
             Py_DECREF(obj);
         }
@@ -338,10 +337,6 @@ CBORDecoder_read(CBORDecoderObject *self, PyObject *length)
     PyObject *ret = NULL;
     Py_ssize_t len;
 
-    if (!PyLong_Check(length)) {
-        PyErr_SetString(PyExc_ValueError, "expected integer length to read");
-        return NULL;
-    }
     len = PyLong_AsSsize_t(length);
     if (PyErr_Occurred())
         return NULL;
@@ -418,8 +413,9 @@ decode_length(CBORDecoderObject *self, uint8_t subtype,
         // well, indefinite is already true so nothing to see here...
         return 0;
     } else {
-        PyErr_Format(PyExc_ValueError, "unknown unsigned integer subtype 0x%x",
-                     subtype);
+        PyErr_Format(
+            _CBOAR_CBORDecodeError,
+            "unknown unsigned integer subtype 0x%x", subtype);
         return -1;
     }
 }
@@ -508,9 +504,9 @@ decode_indefinite_bytestrings(CBORDecoderObject *self)
                         _CBOAR_empty_bytes, _CBOAR_str_join, list, NULL);
                 break;
             } else {
-                PyErr_SetString(PyExc_ValueError,
-                                "non-bytestring found in indefinite length "
-                                "bytestring");
+                PyErr_SetString(
+                    _CBOAR_CBORDecodeError,
+                    "non-bytestring found in indefinite length bytestring");
                 break;
             }
         }
@@ -596,8 +592,9 @@ decode_indefinite_strings(CBORDecoderObject *self)
                         _CBOAR_empty_str, _CBOAR_str_join, list, NULL);
                 break;
             } else {
-                PyErr_SetString(PyExc_ValueError,
-                                "non-string found in indefinite length string");
+                PyErr_SetString(
+                    _CBOAR_CBORDecodeError,
+                    "non-string found in indefinite length string");
                 break;
             }
         }
@@ -932,12 +929,14 @@ CBORDecoder_decode_datestr(CBORDecoderObject *self)
                 if (match != Py_None)
                     ret = parse_datestr(self, str);
                 else
-                    PyErr_Format(PyExc_ValueError,
-                            "invalid datetime string %R", str);
+                    PyErr_Format(
+                        _CBOAR_CBORDecodeError,
+                        "invalid datetime string %R", str);
                 Py_DECREF(match);
             }
         } else
-            PyErr_Format(PyExc_ValueError, "invalid datetime value %R", str);
+            PyErr_Format(
+                _CBOAR_CBORDecodeError, "invalid datetime value %R", str);
         Py_DECREF(str);
     }
     set_shareable(self, ret);
@@ -963,7 +962,8 @@ CBORDecoder_decode_timestamp(CBORDecoderObject *self)
                 Py_DECREF(tuple);
             }
         } else {
-            PyErr_Format(PyExc_ValueError, "invalid timestamp value %R", num);
+            PyErr_Format(
+                _CBOAR_CBORDecodeError, "invalid timestamp value %R", num);
         }
         Py_DECREF(num);
     }
@@ -985,7 +985,8 @@ CBORDecoder_decode_positive_bignum(CBORDecoderObject *self)
             ret = PyObject_CallMethod(
                 (PyObject*) &PyLong_Type, "from_bytes", "Os#", bytes, "big", 3);
         else
-            PyErr_Format(PyExc_ValueError, "invalid bignum value %R", bytes);
+            PyErr_Format(
+                _CBOAR_CBORDecodeError, "invalid bignum value %R", bytes);
         Py_DECREF(bytes);
     }
     set_shareable(self, ret);
@@ -1113,20 +1114,22 @@ CBORDecoder_decode_shared(CBORDecoderObject *self)
             ret = PyList_GetItem(self->shareables, PyLong_AsSsize_t(index));
             if (ret) {
                 if (ret == Py_None) {
-                    PyErr_Format(PyExc_ValueError,
-                            "shared value %R has not been initialized", index);
+                    PyErr_Format(
+                        _CBOAR_CBORDecodeError,
+                        "shared value %R has not been initialized", index);
                     ret = NULL;
                 } else {
                     // convert borrowed reference to new reference
                     Py_INCREF(ret);
                 }
             } else {
-                PyErr_Format(PyExc_ValueError,
-                        "shared reference %R not found", index);
+                PyErr_Format(
+                    _CBOAR_CBORDecodeError,
+                    "shared reference %R not found", index);
             }
         } else {
-            PyErr_Format(PyExc_ValueError,
-                    "invalid shared reference %R", index);
+            PyErr_Format(
+                _CBOAR_CBORDecodeError, "invalid shared reference %R", index);
         }
         Py_DECREF(index);
     }
@@ -1237,7 +1240,7 @@ CBORDecoder_decode_set(CBORDecoderObject *self)
             else
                 ret = PySet_New(array);
         } else
-            PyErr_Format(PyExc_ValueError, "invalid set array %R", array);
+            PyErr_Format(_CBOAR_CBORDecodeError, "invalid set array %R", array);
         Py_DECREF(array);
     }
     // This can be done after construction of the set/frozenset because,
@@ -1279,10 +1282,12 @@ CBORDecoder_decode_ipaddress(CBORDecoderObject *self)
                     Py_DECREF(tag);
                 }
             } else
-                PyErr_Format(PyExc_ValueError, "invalid ipaddress length %d",
-                        PyBytes_GET_SIZE(bytes));
+                PyErr_Format(
+                    _CBOAR_CBORDecodeError,
+                    "invalid ipaddress length %d", PyBytes_GET_SIZE(bytes));
         } else
-            PyErr_Format(PyExc_ValueError, "invalid ipaddress value %R", bytes);
+            PyErr_Format(
+                _CBOAR_CBORDecodeError, "invalid ipaddress value %R", bytes);
         Py_DECREF(bytes);
     }
     set_shareable(self, ret);
@@ -1468,10 +1473,6 @@ CBORDecoder_decode_from_bytes(CBORDecoderObject *self, PyObject *data)
 
     if (!_CBOAR_BytesIO && _CBOAR_init_BytesIO() == -1)
         return NULL;
-    if (!PyBytes_Check(data)) {
-        PyErr_SetString(PyExc_ValueError, "expected byte-string to decode");
-        return NULL;
-    }
 
     save_read = self->read;
     buf = PyObject_CallFunctionObjArgs(_CBOAR_BytesIO, data, NULL);

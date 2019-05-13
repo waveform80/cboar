@@ -275,7 +275,7 @@ static PyObject *
 CBOREncoder_write(CBOREncoderObject *self, PyObject *data)
 {
     if (!PyBytes_Check(data)) {
-        PyErr_SetString(PyExc_ValueError, "expected bytes for writing");
+        PyErr_SetString(_CBOAR_CBOREncodeError, "expected bytes for writing");
         return NULL;
     }
     if (fp_write(self, PyBytes_AS_STRING(data), PyBytes_GET_SIZE(data)) == -1)
@@ -359,7 +359,7 @@ load_type(PyObject *type_tuple)
             return type;
         }
     }
-    PyErr_Format(PyExc_ValueError,
+    PyErr_Format(_CBOAR_CBOREncodeError,
             "invalid deferred encoder type %R (must be a 2-tuple of module "
             "name and type name, e.g. ('collections', 'defaultdict'))",
             type_tuple);
@@ -591,7 +591,8 @@ CBOREncoder_encode_bytearray(CBOREncoderObject *self, PyObject *value)
     Py_ssize_t length;
 
     if (!PyByteArray_Check(value)) {
-        PyErr_Format(PyExc_ValueError, "invalid bytearray value %R", value);
+        PyErr_Format(_CBOAR_CBOREncodeError,
+                "invalid bytearray value %R", value);
         return NULL;
     }
     length = PyByteArray_GET_SIZE(value);
@@ -850,7 +851,7 @@ CBOREncoder_encode_datetime(CBOREncoderObject *self, PyObject *value)
                         self->timezone,
                         PyDateTimeAPI->DateTimeType);
             } else {
-                PyErr_Format(PyExc_ValueError,
+                PyErr_Format(_CBOAR_CBOREncodeError,
                                 "naive datetime %R encountered and no default "
                                 "timezone has been set", value);
                 value = NULL;
@@ -1076,9 +1077,9 @@ encode_shared(CBOREncoderObject *self, EncodeFunction *encoder,
             }
         } else {
             if (tuple) {
-                PyErr_SetString(PyExc_ValueError,
-                                "cyclic data structure detected but "
-                                "value_sharing is False");
+                PyErr_SetString(
+                    _CBOAR_CBOREncodeError,
+                    "cyclic data structure detected but value_sharing is False");
             } else {
                 tuple = PyTuple_Pack(2, value, Py_None);
                 if (tuple) {
@@ -1103,8 +1104,9 @@ shared_callback(CBOREncoderObject *self, PyObject *value)
         return PyObject_CallFunctionObjArgs(
                 self->shared_handler, self, value, NULL);
     } else {
-        PyErr_Format(PyExc_ValueError,
-                "non-callable passed as shared encoding method");
+        PyErr_Format(
+            _CBOAR_CBOREncodeError,
+            "non-callable passed as shared encoding method");
         return NULL;
     }
 }
@@ -1738,8 +1740,9 @@ encode(CBOREncoderObject *self, PyObject *value)
                     ret = PyObject_CallFunctionObjArgs(
                             self->default_handler, self, value, NULL);
                 else
-                    PyErr_Format(PyExc_ValueError, "cannot serialize type %R",
-                            (PyObject *)Py_TYPE(value));
+                    PyErr_Format(
+                        _CBOAR_CBOREncodeError,
+                        "cannot serialize type %R", (PyObject *)Py_TYPE(value));
                 Py_DECREF(encoder);
             }
     }

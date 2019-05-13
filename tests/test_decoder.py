@@ -67,7 +67,7 @@ def test_read():
         decoder = CBORDecoder(stream)
         assert decoder.read(3) == b'foo'
         assert decoder.read(3) == b'bar'
-        with pytest.raises(ValueError):
+        with pytest.raises(TypeError):
             decoder.read('foo')
         with pytest.raises(ValueError):
             decoder.read(10)
@@ -77,7 +77,7 @@ def test_decode_from_bytes():
     with BytesIO(b'foobar') as stream:
         decoder = CBORDecoder(stream)
         assert decoder.decode_from_bytes(b'\x01') == 1
-        with pytest.raises(ValueError):
+        with pytest.raises(TypeError):
             decoder.decode_from_bytes('foo')
 
 
@@ -107,12 +107,12 @@ def test_integer(payload, expected):
 
 
 def test_bad_bigint():
-    with pytest.raises(ValueError):
+    with pytest.raises(CBORDecodeError):
         loads(unhexlify('c269010000000000000000'))
 
 
 def test_invalid_integer_subtype():
-    with pytest.raises(ValueError) as exc:
+    with pytest.raises(CBORDecodeError) as exc:
         loads(b'\x1c')
     assert str(exc.value).endswith('unknown unsigned integer subtype 0x1c')
 
@@ -233,9 +233,9 @@ def test_streaming(payload, expected):
 
 
 def test_bad_stream():
-    with pytest.raises(ValueError):
+    with pytest.raises(CBORDecodeError):
         loads(unhexlify('5f42010263030405ff'))
-    with pytest.raises(ValueError):
+    with pytest.raises(CBORDecodeError):
         loads(unhexlify('7f657374726561446d696e67ff'))
 
 
@@ -291,13 +291,13 @@ def test_datetime(payload, expected):
 
 
 def test_bad_datetime():
-    with pytest.raises(ValueError) as exc:
+    with pytest.raises(CBORDecodeError) as exc:
         loads(unhexlify('c06b303030302d3132332d3031'))
     assert str(exc.value).endswith("invalid datetime string '0000-123-01'")
-    with pytest.raises(ValueError) as exc:
+    with pytest.raises(CBORDecodeError) as exc:
         loads(unhexlify('c04b303030302d3132332d3031'))
     assert str(exc.value).endswith("invalid datetime value b'0000-123-01'")
-    with pytest.raises(ValueError) as exc:
+    with pytest.raises(CBORDecodeError) as exc:
         loads(unhexlify('c16b303030302d3132332d3031'))
     assert str(exc.value).endswith("invalid timestamp value '0000-123-01'")
 
@@ -352,30 +352,42 @@ def test_ipaddress(payload, expected):
 
 
 def test_bad_ipaddress():
-    with pytest.raises(ValueError) as exc:
+    with pytest.raises(CBORDecodeError) as exc:
         loads(unhexlify('d9010443c00a0a'))
     assert str(exc.value).endswith('invalid ipaddress length 3')
-    with pytest.raises(ValueError) as exc:
+    with pytest.raises(CBORDecodeError) as exc:
         loads(unhexlify('d9010401'))
     assert str(exc.value).endswith('invalid ipaddress value 1')
 
 
 def test_bad_shared_reference():
-    with pytest.raises(ValueError) as exc:
+    with pytest.raises(CBORDecodeError) as exc:
         loads(unhexlify('d81d05'))
     assert str(exc.value).endswith('shared reference 5 not found')
-    with pytest.raises(ValueError) as exc:
+    with pytest.raises(CBORDecodeError) as exc:
         loads(unhexlify('d81d4101'))
     assert str(exc.value).endswith("invalid shared reference b'\\x01'")
 
 
 def test_uninitialized_shared_reference():
-    with pytest.raises(ValueError) as exc:
+    with pytest.raises(CBORDecodeError) as exc:
         # encode a set of a recursive array; the set forces the embedded array
         # to be decoded as a recursive tuple which is impossible, and leads to
         # the expected error
         loads(unhexlify('d90102d81c81d81d00'))
     assert str(exc.value).endswith('shared value 0 has not been initialized')
+
+
+def test_immutable_shared_reference():
+    # a = (1, 2, 3)
+    # b = ((a, a), a)
+    # data = dumps(set(b))
+    decoded = loads(unhexlify('d90102d81c82d81c82d81c83010203d81d02d81d02'))
+    a = [item for item in decoded if len(item) == 3][0]
+    b = [item for item in decoded if len(item) == 2][0]
+    assert decoded == set(((a, a), a))
+    assert b[0] is a
+    assert b[1] is a
 
 
 def test_cyclic_array():
@@ -403,10 +415,10 @@ def test_premature_end_of_stream():
     Test that the decoder detects a situation where read() returned fewer than expected bytes.
 
     """
-    with pytest.raises(ValueError) as exc:
+    with pytest.raises(CBORDecodeError) as exc:
         loads(unhexlify('437879'))
     exc.match('premature end of stream \(expected to read 3 bytes, got 2 instead\)')
-    with pytest.raises(ValueError) as exc:
+    with pytest.raises(CBORDecodeError) as exc:
         loads(b'')
     exc.match('premature end of stream \(expected to read 1 bytes, got 0 instead\)')
 
@@ -456,7 +468,7 @@ def test_load_from_file(tmpdir):
 
 
 def test_nested_exception():
-    with pytest.raises((ValueError, TypeError)) as exc:
+    with pytest.raises(TypeError) as exc:
         loads(unhexlify('a1d9177082010201'))
     exc.match(r"unhashable type: .*Tag")
 
@@ -469,7 +481,7 @@ def test_set():
 
 
 def test_bad_set():
-    with pytest.raises(ValueError) as exc:
+    with pytest.raises(CBORDecodeError) as exc:
         loads(unhexlify('d901024101'))
     assert str(exc.value).endswith("invalid set array b'\\x01'")
 

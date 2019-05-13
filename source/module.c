@@ -153,9 +153,13 @@ static PyStructSequence_Field CBORSimpleValueFields[] = {
     {NULL},
 };
 
+PyDoc_STRVAR(_CBOAR_CBORSimpleValue__doc__,
+"Represents a CBOR \"simple value\", with a value of 0 to 255."
+);
+
 static PyStructSequence_Desc CBORSimpleValueDesc = {
     .name = "CBORSimpleValue",
-    .doc = NULL,  // TODO
+    .doc = _CBOAR_CBORSimpleValue__doc__,
     .fields = CBORSimpleValueFields,
     .n_in_sequence = 1,
 };
@@ -586,6 +590,10 @@ PyObject *_CBOAR_str_utc_suffix = NULL;
 PyObject *_CBOAR_str_UUID = NULL;
 PyObject *_CBOAR_str_write = NULL;
 
+PyObject *_CBOAR_CBORError = NULL;
+PyObject *_CBOAR_CBOREncodeError = NULL;
+PyObject *_CBOAR_CBORDecodeError = NULL;
+
 PyObject *_CBOAR_timezone = NULL;
 PyObject *_CBOAR_timezone_utc = NULL;
 PyObject *_CBOAR_BytesIO = NULL;
@@ -736,6 +744,9 @@ cboar_free(PyObject *m)
     Py_CLEAR(_CBOAR_re_compile);
     Py_CLEAR(_CBOAR_datestr_re);
     Py_CLEAR(_CBOAR_ip_address);
+    Py_CLEAR(_CBOAR_CBOREncodeError);
+    Py_CLEAR(_CBOAR_CBORDecodeError);
+    Py_CLEAR(_CBOAR_CBORError);
     Py_CLEAR(_CBOAR_default_encoders);
     Py_CLEAR(_CBOAR_canonical_encoders);
 }
@@ -754,10 +765,23 @@ static PyMethodDef _cboarmethods[] = {
 
 PyDoc_STRVAR(_cboar__doc__,
 "The _cboar module is the C-extension backing the cboar Python module. It\n"
-"defines the base CBOREncoder, CBORDecoder, CBORTag, and undefined types\n"
-"which are operational in and of themselves, but lacks the standard load\n"
-"and dump routines which form the usual public interface. These are added\n"
-"by the cboar module which imports the _cboar module.\n"
+"defines the base :exc:`CBORError`, :exc:`CBOREncodeError`,\n"
+":exc:`CBORDecodeError`, :class:`CBOREncoder`, :class:`CBORDecoder`,\n"
+":class:`CBORTag`, and undefined types which are operational in and of\n"
+"themselves."
+);
+
+PyDoc_STRVAR(_cboar_CBORError__doc__,
+"The base class for all CBOR encoding or decoding errors. Derives from\n"
+":exc:`ValueError`"
+);
+
+PyDoc_STRVAR(_cboar_CBOREncodeError__doc__,
+"The exception class raised during any kind of encoding error"
+);
+
+PyDoc_STRVAR(_cboar_CBORDecodeError__doc__,
+"The exception class raised during any kind of decoding error"
 );
 
 static struct PyModuleDef _cboarmodule = {
@@ -788,6 +812,30 @@ PyInit__cboar(void)
     module = PyModule_Create(&_cboarmodule);
     if (!module)
         return NULL;
+
+    _CBOAR_CBORError = PyErr_NewExceptionWithDoc(
+            "_cboar.CBORError", _cboar_CBORError__doc__,
+            PyExc_ValueError, NULL);
+    if (!_CBOAR_CBORError)
+        goto error;
+    if (PyModule_AddObject(module, "CBORError", _CBOAR_CBORError) == -1)
+        goto error;
+
+    _CBOAR_CBOREncodeError = PyErr_NewExceptionWithDoc(
+            "_cboar.CBOREncodeError", _cboar_CBOREncodeError__doc__, 
+            _CBOAR_CBORError, NULL);
+    if (!_CBOAR_CBOREncodeError)
+        goto error;
+    if (PyModule_AddObject(module, "CBOREncodeError", _CBOAR_CBOREncodeError) == -1)
+        goto error;
+
+    _CBOAR_CBORDecodeError = PyErr_NewExceptionWithDoc(
+            "_cboar.CBORDecodeError", _cboar_CBORDecodeError__doc__, 
+            _CBOAR_CBORError, NULL);
+    if (!_CBOAR_CBORDecodeError)
+        goto error;
+    if (PyModule_AddObject(module, "CBORDecodeError", _CBOAR_CBORDecodeError) == -1)
+        goto error;
 
 #if PY_VERSION_HEX >= 0x03040000
     // Use PyStructSequence_InitType2 to workaround #34784 (dup of #28709)

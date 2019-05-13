@@ -1,12 +1,11 @@
-import io
-import re
 from functools import wraps
-from collections import defaultdict, OrderedDict, namedtuple
-from datetime import datetime, date
 
 from _cboar import (
     default_encoders,
     canonical_encoders,
+    CBORError,
+    CBOREncodeError,
+    CBORDecodeError,
     CBOREncoder,
     CBORDecoder,
     CBORTag,
